@@ -1,32 +1,5 @@
 # Changelog
 
-## [1.45.2](https://github.com/kunchenguid/no-mistakes/compare/v1.45.1...v1.45.2) (2026-08-02)
-
-
-### Bug Fixes
-
-* **pipeline:** stop polling terminal cancelled CI checks ([#637](https://github.com/kunchenguid/no-mistakes/issues/637)) ([eb826b4](https://github.com/kunchenguid/no-mistakes/commit/eb826b4c5ff5d06b619f3344ecf014c7e7d31001))
-* **update:** authenticate GitHub release requests ([#636](https://github.com/kunchenguid/no-mistakes/issues/636)) ([c0920cd](https://github.com/kunchenguid/no-mistakes/commit/c0920cd1675d562ee7d5e97a6b45d0cba82edde6))
-
-## [1.45.1](https://github.com/kunchenguid/no-mistakes/compare/v1.45.0...v1.45.1) (2026-08-02)
-
-
-### Bug Fixes
-
-* **pipeline:** independently review automatic fixes ([#634](https://github.com/kunchenguid/no-mistakes/issues/634)) ([f2538db](https://github.com/kunchenguid/no-mistakes/commit/f2538db8c81127cffbd0da58574ee6275aa5a11a))
-
-## [1.45.0](https://github.com/kunchenguid/no-mistakes/compare/v1.44.2...v1.45.0) (2026-08-02)
-
-
-### Features
-
-* **pipeline:** re-run provider-cancelled CI checks before escalating ([#595](https://github.com/kunchenguid/no-mistakes/issues/595)) ([1753783](https://github.com/kunchenguid/no-mistakes/commit/17537830a92de42e0b8c3848bfab8e2301be8923))
-
-
-### Bug Fixes
-
-* **cli:** confirm abort truth before releasing branch custody ([#631](https://github.com/kunchenguid/no-mistakes/issues/631)) ([a93dc8f](https://github.com/kunchenguid/no-mistakes/commit/a93dc8ff6a942d8d69fce97c3afc1bb11bf3fdc6))
-
 ## [1.44.2](https://github.com/kunchenguid/no-mistakes/compare/v1.44.1...v1.44.2) (2026-08-01)
 
 
