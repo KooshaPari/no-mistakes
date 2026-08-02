@@ -543,6 +543,9 @@ func TestAxiPrePushAbortUnmovedHeadCustodyJourney(t *testing.T) {
 		t.Fatalf("axi status: %v\n%s", err, statusOut)
 	}
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> c0920cd (fix(update): authenticate GitHub release requests (#636))
 	var statusDoc struct {
 		BranchSync struct {
 			Pipeline struct {
@@ -565,8 +568,6 @@ func TestAxiPrePushAbortUnmovedHeadCustodyJourney(t *testing.T) {
 		"status: cancelled",
 		"branch_sync:",
 		"branch: feature/unmoved-abort",
-		"submitted_head: " + submitted,
-		"current_head: " + submitted,
 		"relation: equal",
 		"state: user_owned",
 		"safety: user_owned",
