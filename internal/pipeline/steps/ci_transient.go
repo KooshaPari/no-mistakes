@@ -279,7 +279,7 @@ func (b *checkRerunBudget) cancelledWithoutRerun(checks []scm.Check) []string {
 }
 
 =======
->>>>>>> 1753783 (feat(pipeline): re-run provider-cancelled CI checks before escalating (#595))
+>>>>>>> eb826b4 (fix(pipeline): stop polling terminal cancelled CI checks (#637))
 // rollupUnchanged reports whether check still carries the exact completion it
 // reported when its rerun was requested. An unknown completion on either side
 // is not evidence of anything, so it reads as changed and the check is treated
@@ -517,8 +517,9 @@ func transientStateLabel(check scm.Check) string {
 // and will not resolve on their own: either the run already spent their rerun
 // budget and they came back cancelled, or no rerun was ever authorized for them.
 =======
-// again after this run already spent their rerun budget.
->>>>>>> 1753783 (feat(pipeline): re-run provider-cancelled CI checks before escalating (#595))
+// and will not resolve on their own: either the run already spent their rerun
+// budget and they came back cancelled, or no rerun was ever authorized for them.
+>>>>>>> eb826b4 (fix(pipeline): stop polling terminal cancelled CI checks (#637))
 //
 // A cancellation is never a verdict on the code, so there is nothing for the fix
 // agent to repair: routing it into the auto_fix.ci loop would spend an agent
@@ -538,13 +539,11 @@ func ciUnresolvedCancelledOutcome(names []string, reruns func(string) int) *pipe
 			Severity:    "warning",
 			Description: unresolvedCancelledDescription(name, reruns(name)),
 =======
-func ciUnresolvedCancelledOutcome(names []string) *pipeline.StepOutcome {
-	findings := Findings{Summary: "CI checks were cancelled again after their rerun"}
 	for _, name := range names {
 		findings.Items = append(findings.Items, Finding{
 			Severity:    "warning",
-			Description: fmt.Sprintf("CI check cancelled again after its rerun: %s - the provider cancelled it rather than reporting a job failure, so it needs a decision rather than a code fix", name),
->>>>>>> 1753783 (feat(pipeline): re-run provider-cancelled CI checks before escalating (#595))
+			Description: unresolvedCancelledDescription(name, reruns(name)),
+>>>>>>> eb826b4 (fix(pipeline): stop polling terminal cancelled CI checks (#637))
 			Action:      types.ActionAskUser,
 		})
 	}
@@ -564,7 +563,7 @@ func unresolvedCancelledDescription(name string, reruns int) string {
 }
 
 =======
->>>>>>> 1753783 (feat(pipeline): re-run provider-cancelled CI checks before escalating (#595))
+>>>>>>> eb826b4 (fix(pipeline): stop polling terminal cancelled CI checks (#637))
 func ciRerunHeadMismatchOutcome(expected, observed string) *pipeline.StepOutcome {
 	findings := Findings{
 		Summary: "published branch head no longer matches the commit this run delivered",

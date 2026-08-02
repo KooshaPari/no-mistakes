@@ -2028,15 +2028,11 @@ func TestCIStep_ZeroRerunBudgetEscalatesCancelledCheckWithoutMakingItReady(t *te
 	prURL := "https://github.com/test/repo/pull/42"
 	ag := &mockAgent{name: "test"}
 	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
-=======
-// check still remains unresolved and therefore cannot make the PR look ready.
-func TestCIStep_ZeroRerunBudgetKeepsCancelledCheckNotReady(t *testing.T) {
 	t.Parallel()
 	dir, upstream, baseSHA, headSHA := setupCIRerunRepo(t)
 
-	env, logFile := fakeCIGHLoggedSequence(t, "OPEN", []string{
-		`[{"name":"test","state":"CANCELLED","bucket":"cancel","link":"https://github.com/test/repo/actions/runs/900/job/901"}]`,
-	}, "", "")
+	cancelled := `[{"name":"test","state":"CANCELLED","bucket":"cancel","link":"https://github.com/test/repo/actions/runs/900/job/901"}]`
+	env, logFile := fakeCIGHLoggedSequence(t, "OPEN", []string{cancelled, cancelled, cancelled}, "", "")
 
 	prURL := "https://github.com/test/repo/pull/42"
 	ag := &mockAgent{name: "test"}
@@ -2241,7 +2237,7 @@ func TestCIStep_GreenChecksAtAdvancedHeadAreRecognizedWhileRunTracksOlderHead(t 
 	sctx.Ctx = ctx
 
 =======
->>>>>>> 1753783 (feat(pipeline): re-run provider-cancelled CI checks before escalating (#595))
+>>>>>>> eb826b4 (fix(pipeline): stop polling terminal cancelled CI checks (#637))
 	step := &CIStep{
 		waitForNextPoll: func(ctx context.Context, interval time.Duration) error {
 			cancel()
@@ -2267,22 +2263,11 @@ func TestCIStep_GreenChecksAtAdvancedHeadAreRecognizedWhileRunTracksOlderHead(t 
 	}
 	if dbRun.CIReadyAt == nil {
 		t.Fatal("green checks on the PR's current head must record CI readiness")
-=======
-		t.Fatalf("expected monitoring to continue, got %v", err)
 	}
-	if strings.Contains(ghLog(t, logFile), "run rerun") {
-		t.Fatalf("reruns are disabled, gh log:\n%s", ghLog(t, logFile))
-	}
-	if len(ag.calls) != 0 {
-		t.Fatalf("expected no fix-agent round, got %d", len(ag.calls))
-	}
-	sawRunning := false
+	sawPassed := false
 	for _, l := range logs {
 		if l == ciChecksPassedMsg {
-			t.Fatalf("a cancelled check must not report checks passed; logs: %v", logs)
-		}
-		if l == ciChecksRunningMsg {
-			sawRunning = true
+			sawPassed = true
 		}
 	}
 	if !sawRunning {
