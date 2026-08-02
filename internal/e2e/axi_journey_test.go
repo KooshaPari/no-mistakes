@@ -542,6 +542,7 @@ func TestAxiPrePushAbortUnmovedHeadCustodyJourney(t *testing.T) {
 	if err != nil {
 		t.Fatalf("axi status: %v\n%s", err, statusOut)
 	}
+<<<<<<< HEAD
 	var statusDoc struct {
 		BranchSync struct {
 			Pipeline struct {
@@ -564,6 +565,8 @@ func TestAxiPrePushAbortUnmovedHeadCustodyJourney(t *testing.T) {
 		"status: cancelled",
 		"branch_sync:",
 		"branch: feature/unmoved-abort",
+		"submitted_head: " + submitted,
+		"current_head: " + submitted,
 		"relation: equal",
 		"state: user_owned",
 		"safety: user_owned",
