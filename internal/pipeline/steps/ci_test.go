@@ -2014,6 +2014,7 @@ func TestCIStep_TimedOutCheckEscalatesWithoutRerunning(t *testing.T) {
 }
 
 // Reruns are opt-out: with the budget at 0 nothing is re-run. The cancelled
+<<<<<<< HEAD
 // check cannot make the PR look ready, and because no rerun is coming it is
 // also the run's final word on that check, so it escalates rather than being
 // waited on.
@@ -2027,6 +2028,20 @@ func TestCIStep_ZeroRerunBudgetEscalatesCancelledCheckWithoutMakingItReady(t *te
 	prURL := "https://github.com/test/repo/pull/42"
 	ag := &mockAgent{name: "test"}
 	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+=======
+// check still remains unresolved and therefore cannot make the PR look ready.
+func TestCIStep_ZeroRerunBudgetKeepsCancelledCheckNotReady(t *testing.T) {
+	t.Parallel()
+	dir, upstream, baseSHA, headSHA := setupCIRerunRepo(t)
+
+	env, logFile := fakeCIGHLoggedSequence(t, "OPEN", []string{
+		`[{"name":"test","state":"CANCELLED","bucket":"cancel","link":"https://github.com/test/repo/actions/runs/900/job/901"}]`,
+	}, "", "")
+
+	prURL := "https://github.com/test/repo/pull/42"
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContext(t, ag, dir, baseSHA, headSHA, config.Commands{})
+>>>>>>> 1753783 (feat(pipeline): re-run provider-cancelled CI checks before escalating (#595))
 	sctx.Env = env
 	sctx.Run.PRURL = &prURL
 	sctx.Repo.UpstreamURL = upstream
@@ -2041,6 +2056,7 @@ func TestCIStep_ZeroRerunBudgetEscalatesCancelledCheckWithoutMakingItReady(t *te
 	defer cancel()
 	sctx.Ctx = ctx
 
+<<<<<<< HEAD
 	polls := 0
 	step := &CIStep{
 		// Bounded: a regression that never escalates must fail the test rather
@@ -2224,6 +2240,8 @@ func TestCIStep_GreenChecksAtAdvancedHeadAreRecognizedWhileRunTracksOlderHead(t 
 	defer cancel()
 	sctx.Ctx = ctx
 
+=======
+>>>>>>> 1753783 (feat(pipeline): re-run provider-cancelled CI checks before escalating (#595))
 	step := &CIStep{
 		waitForNextPoll: func(ctx context.Context, interval time.Duration) error {
 			cancel()
@@ -2231,6 +2249,7 @@ func TestCIStep_GreenChecksAtAdvancedHeadAreRecognizedWhileRunTracksOlderHead(t 
 		},
 	}
 	if _, err := step.Execute(sctx); !errors.Is(err, context.Canceled) {
+<<<<<<< HEAD
 		t.Fatalf("expected monitoring to continue after green checks, got %v", err)
 	}
 	sawPassed := false
@@ -2248,6 +2267,27 @@ func TestCIStep_GreenChecksAtAdvancedHeadAreRecognizedWhileRunTracksOlderHead(t 
 	}
 	if dbRun.CIReadyAt == nil {
 		t.Fatal("green checks on the PR's current head must record CI readiness")
+=======
+		t.Fatalf("expected monitoring to continue, got %v", err)
+	}
+	if strings.Contains(ghLog(t, logFile), "run rerun") {
+		t.Fatalf("reruns are disabled, gh log:\n%s", ghLog(t, logFile))
+	}
+	if len(ag.calls) != 0 {
+		t.Fatalf("expected no fix-agent round, got %d", len(ag.calls))
+	}
+	sawRunning := false
+	for _, l := range logs {
+		if l == ciChecksPassedMsg {
+			t.Fatalf("a cancelled check must not report checks passed; logs: %v", logs)
+		}
+		if l == ciChecksRunningMsg {
+			sawRunning = true
+		}
+	}
+	if !sawRunning {
+		t.Fatalf("expected a cancelled check to remain unresolved, got: %v", logs)
+>>>>>>> 1753783 (feat(pipeline): re-run provider-cancelled CI checks before escalating (#595))
 	}
 }
 

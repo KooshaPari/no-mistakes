@@ -341,6 +341,7 @@ func (s *CIStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, err
 					// a ready-to-merge signal behind on the way out.
 					clearCIMonitorReady(sctx)
 					return rerunOutcome, nil
+<<<<<<< HEAD
 				}
 				rerunIssued = issued
 			}
@@ -387,6 +388,35 @@ func (s *CIStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, err
 					return nil, err
 				}
 			}
+=======
+				}
+				rerunIssued = issued
+			}
+			// A check the provider cancelled again after this run spent its
+			// rerun is unresolved, not green, and it is not a job failure
+			// either: it reaches its own approval gate below rather than the
+			// fix agent. A check whose rerun the provider has not published yet
+			// is neither, so the monitor keeps waiting for it.
+			var unresolvedCancelled, awaitingRerun []string
+			if !rerunIssued {
+				unresolvedCancelled, awaitingRerun = s.transientReruns.cancelledAfterRerun(checks)
+			}
+			sort.Strings(failing)
+			sort.Strings(unresolvedCancelled)
+			sort.Strings(awaitingRerun)
+			hasFailures := len(failing) > 0
+			hasIssues := hasFailures || mergeConflict || len(unresolvedCancelled) > 0
+			// reportedIssues is what the step tells the user about; failing
+			// stays the set the fix agent is asked to repair.
+			reportedIssues := mergeCheckNames(failing, unresolvedCancelled)
+			timeoutFailingChecks = append(timeoutFailingChecks[:0], mergeCheckNames(reportedIssues, awaitingRerun)...)
+
+			if hasIssues || len(awaitingRerun) > 0 {
+				if err := setCIMonitorReadiness(sctx, false, false); err != nil {
+					return nil, err
+				}
+			}
+>>>>>>> 1753783 (feat(pipeline): re-run provider-cancelled CI checks before escalating (#595))
 			if rerunIssued || (!hasIssues && len(awaitingRerun) > 0) {
 				// The re-run checks are running again for the same commit, so
 				// the monitor waits rather than escalating. This also clears any
@@ -408,13 +438,22 @@ func (s *CIStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, err
 				lastMonitorLog = ""
 				if !hasFailures && !mergeConflict && !sctx.Fixing {
 					// Every remaining issue is a check the provider cancelled
+<<<<<<< HEAD
 					// rather than a verdict on the code. No fix can clear one,
 					// so this parks for a decision instead of spending a
+=======
+					// again rather than a verdict on the code. No fix can clear
+					// one, so this parks for a decision instead of spending a
+>>>>>>> 1753783 (feat(pipeline): re-run provider-cancelled CI checks before escalating (#595))
 					// fix-agent round on a run that never tested anything. The
 					// CI step's outcomes are never auto-fixable, so sctx.Fixing
 					// here means the user answered that gate with "fix": that
 					// deliberate override is honored rather than re-parked.
+<<<<<<< HEAD
 					return ciUnresolvedCancelledOutcome(unresolvedCancelled, s.transientReruns.used), nil
+=======
+					return ciUnresolvedCancelledOutcome(unresolvedCancelled), nil
+>>>>>>> 1753783 (feat(pipeline): re-run provider-cancelled CI checks before escalating (#595))
 				}
 				// All checks done, issues present - fix or report.
 				// The fix agent is asked to repair job failures; a check the
