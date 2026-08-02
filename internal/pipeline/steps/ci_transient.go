@@ -248,38 +248,6 @@ func (b *checkRerunBudget) cancelledAfterRerun(checks []scm.Check) (unresolved, 
 	return unresolved, awaiting
 }
 
-<<<<<<< HEAD
-// cancelledWithoutRerun returns the checks the provider cancelled that this run
-// has not spent a rerun on, deduplicated by name.
-//
-// A cancelled check is terminal: the provider has published a conclusion for it
-// and will not publish another one by itself. A rerun is the only thing that
-// could replace it, and a check with none spent either had no budget (the
-// default) or exhausted it, so there is nothing outstanding to wait for. That
-// makes these checks unresolved in the same sense as the ones that came back
-// cancelled after their rerun, and they belong at the same gate.
-//
-// Checks this run DID re-run are deliberately excluded: cancelledAfterRerun
-// owns those, because it also has to tell a republished rerun apart from a
-// rollup that has not refreshed yet, and it spends rollup grace while doing so.
-func (b *checkRerunBudget) cancelledWithoutRerun(checks []scm.Check) []string {
-	var names []string
-	seen := map[string]struct{}{}
-	for _, check := range checks {
-		if check.Bucket != scm.CheckBucketCancel || b.used(check.Name) > 0 {
-			continue
-		}
-		if _, ok := seen[check.Name]; ok {
-			continue
-		}
-		seen[check.Name] = struct{}{}
-		names = append(names, check.Name)
-	}
-	return names
-}
-
-=======
->>>>>>> eb826b4 (fix(pipeline): stop polling terminal cancelled CI checks (#637))
 // rollupUnchanged reports whether check still carries the exact completion it
 // reported when its rerun was requested. An unknown completion on either side
 // is not evidence of anything, so it reads as changed and the check is treated
@@ -513,37 +481,18 @@ func transientStateLabel(check scm.Check) string {
 }
 
 // ciUnresolvedCancelledOutcome parks the run for checks the provider cancelled
-<<<<<<< HEAD
-// and will not resolve on their own: either the run already spent their rerun
+/ and will not resolve on their own: either the run already spent their rerun
 // budget and they came back cancelled, or no rerun was ever authorized for them.
-=======
-// and will not resolve on their own: either the run already spent their rerun
-// budget and they came back cancelled, or no rerun was ever authorized for them.
->>>>>>> eb826b4 (fix(pipeline): stop polling terminal cancelled CI checks (#637))
 //
 // A cancellation is never a verdict on the code, so there is nothing for the fix
 // agent to repair: routing it into the auto_fix.ci loop would spend an agent
 // round - and let that agent edit code the provider never tested - chasing an
 // outcome only the provider can clear. The findings are ask-user for the same
 // reason, so a fix loop cannot pick them up later either.
-<<<<<<< HEAD
-//
-// reruns reports how many reruns this run spent on a check, so each finding can
-// state which of the two it is: whether the cancellation survived a retry or
-// was never retried at all is the difference between a provider that keeps
-// cancelling and one that cancelled once and was believed.
-func ciUnresolvedCancelledOutcome(names []string, reruns func(string) int) *pipeline.StepOutcome {
-	findings := Findings{Summary: "CI checks were cancelled without reporting a verdict"}
-	for _, name := range names {
+for _, name := range names {
 		findings.Items = append(findings.Items, Finding{
 			Severity:    "warning",
 			Description: unresolvedCancelledDescription(name, reruns(name)),
-=======
-	for _, name := range names {
-		findings.Items = append(findings.Items, Finding{
-			Severity:    "warning",
-			Description: unresolvedCancelledDescription(name, reruns(name)),
->>>>>>> eb826b4 (fix(pipeline): stop polling terminal cancelled CI checks (#637))
 			Action:      types.ActionAskUser,
 		})
 	}
@@ -554,16 +503,6 @@ func ciUnresolvedCancelledOutcome(names []string, reruns func(string) int) *pipe
 	}
 }
 
-<<<<<<< HEAD
-func unresolvedCancelledDescription(name string, reruns int) string {
-	if reruns > 0 {
-		return fmt.Sprintf("CI check cancelled again after its rerun: %s - the provider cancelled it rather than reporting a job failure, so it needs a decision rather than a code fix", name)
-	}
-	return fmt.Sprintf("CI check cancelled without a verdict: %s - the provider cancelled it rather than reporting a job failure, and no rerun is outstanding to replace that result, so it needs a decision rather than a code fix", name)
-}
-
-=======
->>>>>>> eb826b4 (fix(pipeline): stop polling terminal cancelled CI checks (#637))
 func ciRerunHeadMismatchOutcome(expected, observed string) *pipeline.StepOutcome {
 	findings := Findings{
 		Summary: "published branch head no longer matches the commit this run delivered",

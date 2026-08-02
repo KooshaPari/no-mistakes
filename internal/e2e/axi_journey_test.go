@@ -542,10 +542,6 @@ func TestAxiPrePushAbortUnmovedHeadCustodyJourney(t *testing.T) {
 	if err != nil {
 		t.Fatalf("axi status: %v\n%s", err, statusOut)
 	}
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> c0920cd (fix(update): authenticate GitHub release requests (#636))
 	var statusDoc struct {
 		BranchSync struct {
 			Pipeline struct {
