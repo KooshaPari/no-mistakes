@@ -27,15 +27,18 @@ const (
 type StepName string
 
 const (
-	StepIntent   StepName = "intent"
-	StepRebase   StepName = "rebase"
-	StepReview   StepName = "review"
-	StepTest     StepName = "test"
-	StepDocument StepName = "document"
-	StepLint     StepName = "lint"
-	StepPush     StepName = "push"
-	StepPR       StepName = "pr"
-	StepCI       StepName = "ci"
+	StepIntent      StepName = "intent"
+	StepRebase      StepName = "rebase"
+	StepReview      StepName = "review"
+	StepTest        StepName = "test"
+	StepDocument    StepName = "document"
+	StepLint        StepName = "lint"
+	StepPush        StepName = "push"
+	StepPR          StepName = "pr"
+	StepCI          StepName = "ci"
+	StepWorktreeGc  StepName = "worktree-gc"
+	StepBranchLint  StepName = "branch-lint"
+	StepHealthCheck StepName = "health-check"
 )
 
 func normalizeStepName(s StepName) StepName {
@@ -95,6 +98,12 @@ func (s StepName) Order() int {
 		return 8
 	case StepCI:
 		return 9
+	case StepWorktreeGc:
+		return 10
+	case StepBranchLint:
+		return 11
+	case StepHealthCheck:
+		return 12
 	default:
 		return 0
 	}
@@ -102,7 +111,7 @@ func (s StepName) Order() int {
 
 // AllSteps returns all pipeline steps in execution order.
 func AllSteps() []StepName {
-	return []StepName{StepIntent, StepRebase, StepReview, StepTest, StepDocument, StepLint, StepPush, StepPR, StepCI}
+	return []StepName{StepIntent, StepRebase, StepReview, StepTest, StepDocument, StepLint, StepPush, StepPR, StepCI, StepWorktreeGc, StepBranchLint, StepHealthCheck}
 }
 
 // StepStatus represents the lifecycle state of a pipeline step.
