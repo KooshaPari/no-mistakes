@@ -111,6 +111,7 @@ jobs:
         with:
           arguments: --all-features
 
+
   python:
     name: Python
     needs: detect
@@ -140,12 +141,35 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+      - name: Exclude CI build and test trees from Defender scanning
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          try {
+            $paths = @(
+              $env:GITHUB_WORKSPACE,
+              $env:RUNNER_TEMP,
+              $env:TEMP,
+              (go env GOCACHE),
+              (go env GOMODCACHE),
+              (go env GOROOT)
+            ) | Where-Object { $_ } | Sort-Object -Unique
+            Add-MpPreference -ExclusionPath $paths -ErrorAction Stop
+            Add-MpPreference -ExclusionProcess 'go.exe', 'git.exe' -ErrorAction Stop
+            Write-Host "Defender exclusions added for: $($paths -join ', ')"
+          } catch {
+            Write-Host "::warning::Defender exclusions unavailable, Windows tests run untuned: $_"
+          }
       - name: gofmt check
         run: gofmt -l . 2>&1 || echo "::warning::gofmt issues (advisory)"
       - name: go vet
         run: go vet ./... 2>&1 || echo "::warning::go vet issues (advisory)"
-      - name: go test
-        run: go test ./... 2>&1 || echo "::warning::test failures (advisory)"
+      - name: Test on Unix
+        if: runner.os != 'Windows'
+        run: go test -race ./...
+      - name: Test on Windows
+        if: runner.os == 'Windows'
+        run: go test ./...
 
   typescript:
     name: TS/JS
