@@ -1,0 +1,63 @@
+package steps
+
+import (
+	"context"
+	"os/exec"
+	"strconv"
+	"strings"
+
+	"github.com/kunchenguid/no-mistakes/internal/pipeline"
+	"github.com/kunchenguid/no-mistakes/internal/types"
+)
+
+// HealthCheckStep flags a worktree that is not on main, has a dirty tree, or
+// is ahead/behind origin/main.
+type HealthCheckStep struct{}
+
+func (HealthCheckStep) Name() types.StepName { return types.StepHealthCheck }
+
+func (HealthCheckStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, error) {
+	if sctx == nil {
+		return &pipeline.StepOutcome{ExitCode: 0}, nil
+	}
+	var problems []string
+	if branch, err := gitTrim(sctx.Ctx, sctx.WorkDir, "rev-parse", "--abbrev-ref", "HEAD"); err == nil {
+		branch = strings.TrimSpace(branch)
+		if branch != "" && branch != "main" && branch != "master" {
+			problems = append(problems, "not on main (HEAD="+branch+")")
+		}
+	}
+	if status, err := gitTrim(sctx.Ctx, sctx.WorkDir, "status", "--porcelain"); err == nil {
+		if status != "" {
+			lines := strings.Count(status, "\n") + 1
+			problems = append(problems, "dirty ("+strconv.Itoa(lines)+" files)")
+		}
+	}
+	if aheadStr, err := gitTrim(sctx.Ctx, sctx.WorkDir, "rev-list", "--count", "origin/main..HEAD"); err == nil {
+		if ahead, e := strconv.Atoi(strings.TrimSpace(aheadStr)); e == nil && ahead > 0 {
+			problems = append(problems, "ahead "+strconv.Itoa(ahead))
+		}
+	}
+	if behindStr, err := gitTrim(sctx.Ctx, sctx.WorkDir, "rev-list", "--count", "HEAD..origin/main"); err == nil {
+		if behind, e := strconv.Atoi(strings.TrimSpace(behindStr)); e == nil && behind > 0 {
+			problems = append(problems, "behind "+strconv.Itoa(behind))
+		}
+	}
+	sev := "info"
+	msg := "healthy"
+	if len(problems) > 0 {
+		sev = "warn"
+		msg = strings.Join(problems, "; ")
+	}
+	return &pipeline.StepOutcome{
+		Findings: `{"severity":"` + sev + `","message":"` + msg + `"}`,
+		ExitCode: 0,
+	}, nil
+}
+
+func gitTrim(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
+var _ = context.Background
