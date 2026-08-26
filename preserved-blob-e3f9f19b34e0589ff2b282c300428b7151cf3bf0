@@ -1,0 +1,64 @@
+package steps
+
+import (
+	"context"
+	"os/exec"
+	"strings"
+
+	"github.com/kunchenguid/no-mistakes/internal/pipeline"
+	"github.com/kunchenguid/no-mistakes/internal/types"
+)
+
+// BranchLintStep flags branches merged to main or whose upstream is [gone].
+type BranchLintStep struct{}
+
+func (BranchLintStep) Name() types.StepName { return types.StepBranchLint }
+
+func (BranchLintStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, error) {
+	if sctx == nil {
+		return &pipeline.StepOutcome{ExitCode: 0}, nil
+	}
+	var gone, merged int
+	if out, err := exec.CommandContext(sctx.Ctx, "git", "-C", sctx.WorkDir,
+		"for-each-ref", "--format=%(refname:short) %(upstream:track)", "refs/heads/").CombinedOutput(); err == nil {
+		for _, ln := range strings.Split(string(out), "\n") {
+			ln = strings.TrimSpace(ln)
+			if ln == "" {
+				continue
+			}
+			parts := strings.SplitN(ln, " ", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			branch, track := parts[0], parts[1]
+			if branch == "main" || branch == "master" {
+				continue
+			}
+			if track == "gone" {
+				gone++
+				sctx.Log("branch-lint: upstream gone: " + branch)
+			}
+		}
+	}
+	if mOut, err := exec.CommandContext(sctx.Ctx, "git", "-C", sctx.WorkDir,
+		"branch", "--format=%(refname:short)", "--merged", "main").CombinedOutput(); err == nil {
+		for _, ln := range strings.Split(string(mOut), "\n") {
+			ln = strings.TrimSpace(ln)
+			if ln == "" || ln == "main" || ln == "master" {
+				continue
+			}
+			merged++
+			sctx.Log("branch-lint: merged into main: " + ln)
+		}
+	}
+	sev := "info"
+	if gone > 0 {
+		sev = "warn"
+	}
+	return &pipeline.StepOutcome{
+		Findings: `{"severity":"` + sev + `","message":"` + itoa(merged) + ` merged, ` + itoa(gone) + ` gone"}`,
+		ExitCode: 0,
+	}, nil
+}
+
+var _ context.Context
