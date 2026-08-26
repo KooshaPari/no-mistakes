@@ -1,11 +1,44 @@
 package cli
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/kunchenguid/no-mistakes/internal/branchsync"
 	"github.com/kunchenguid/no-mistakes/internal/db"
 )
+
+func TestStatusAlwaysRendersCachedLocalState(t *testing.T) {
+	setupTestRepo(t)
+	if _, err := executeCmd("init"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	clean, err := executeCmd("status")
+	if err != nil {
+		t.Fatalf("clean status: %v", err)
+	}
+	for _, want := range []string{"repo:", "daemon:", "local state:  cached:", "(clean;", "no active run"} {
+		if !strings.Contains(clean, want) {
+			t.Fatalf("clean status missing %q:\n%s", want, clean)
+		}
+	}
+
+	if err := os.WriteFile("uncommitted.txt", []byte("dirty\n"), 0o644); err != nil {
+		t.Fatalf("make worktree dirty: %v", err)
+	}
+
+	dirty, err := executeCmd("status")
+	if err != nil {
+		t.Fatalf("dirty status: %v", err)
+	}
+	for _, want := range []string{"repo:", "daemon:", "local state:  cached:", "(dirty:", "no active run"} {
+		if !strings.Contains(dirty, want) {
+			t.Fatalf("dirty status missing %q:\n%s", want, dirty)
+		}
+	}
+}
 
 func TestCachedBranchSummary(t *testing.T) {
 	tests := []struct {
