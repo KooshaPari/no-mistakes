@@ -123,19 +123,30 @@ Expected: PASS.
 - Modify: `internal/cli/status.go`
 - Create: `internal/cli/status_test.go`
 
-- [ ] **Step 1: Format and run full gates**
+- [ ] **Step 1: Add command-level status coverage**
+
+Use `setupTestRepo`, `executeCmd("init")`, and `executeCmd("status")` to
+assert the clean and a newly dirty worktree both retain `repo`, `daemon`, and
+`no active run` output and always include `local state:  cached:`. The clean
+case must include `(clean;`; the dirty case must include `(dirty:`.
+
+Run: `go test ./internal/cli -run '^TestStatusAlwaysRendersCachedLocalState$' -count=1`
+
+Expected: PASS.
+
+- [ ] **Step 2: Format and run full gates**
 
 Run: `gofmt -w internal/cli/status.go internal/cli/status_test.go && make lint && go test -race ./... && go build -o ./bin/no-mistakes ./cmd/no-mistakes`
 
 Expected: each command exits 0.
 
-- [ ] **Step 2: Inspect the review diff**
+- [ ] **Step 3: Inspect the review diff**
 
 Run: `git diff --check && git diff -- internal/cli/status.go internal/cli/status_test.go`
 
 Expected: no whitespace errors and no source file outside the planned scope.
 
-- [ ] **Step 3: Commit after fresh evidence**
+- [ ] **Step 4: Commit after fresh evidence**
 
 ```bash
 git add internal/cli/status.go internal/cli/status_test.go
