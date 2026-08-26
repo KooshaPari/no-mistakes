@@ -152,3 +152,35 @@ Expected: no whitespace errors and no source file outside the planned scope.
 git add internal/cli/status.go internal/cli/status_test.go
 git commit -m "feat(status): show cached repository state"
 ```
+
+### Task 5: Review-remediation safety proof
+
+**Files:**
+
+- Modify: `internal/cli/status_test.go`
+- Modify: `docs/src/content/docs/reference/cli.md`
+
+- [x] **Step 1: Add a command-level cached-only safety regression**
+
+Run `status` after `init` through a test-local Git wrapper that records any
+`fetch` or `ls-remote` invocation. Snapshot `.git/FETCH_HEAD`, `.git/index`,
+refs, worktree state, and the gate database before and after the command.
+Assert that the command renders cached state, makes no remote Git call, and
+does not change any snapshot.
+
+- [x] **Step 2: State the user-facing freshness boundary**
+
+Document that the always-rendered cached local-state line is local evidence,
+does not fetch or query remotes, and does not assert remote freshness.
+
+- [x] **Step 3: Run focused and full verification**
+
+Run:
+
+```bash
+gofmt -w internal/cli/status_test.go
+go test ./internal/cli -run 'TestStatus' -count=1
+make lint && go test -race ./... && go build -o ./bin/no-mistakes ./cmd/no-mistakes && git diff --check
+```
+
+Expected: each command exits 0 before updating the PR.

@@ -1,12 +1,19 @@
 package cli
 
 import (
+	"bytes"
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/kunchenguid/no-mistakes/internal/branchsync"
+	"github.com/kunchenguid/no-mistakes/internal/daemon"
 	"github.com/kunchenguid/no-mistakes/internal/db"
+	"github.com/kunchenguid/no-mistakes/internal/paths"
 )
 
 func TestStatusAlwaysRendersCachedLocalState(t *testing.T) {
@@ -38,6 +45,164 @@ func TestStatusAlwaysRendersCachedLocalState(t *testing.T) {
 			t.Fatalf("dirty status missing %q:\n%s", want, dirty)
 		}
 	}
+}
+
+func TestStatusUsesCachedStateWithoutRemoteGitOrMutation(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	if _, err := executeCmd("init"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	p, err := paths.New()
+	if err != nil {
+		t.Fatalf("paths: %v", err)
+	}
+	// Keep the status command as the only process that can touch the local DB
+	// while this test compares the read surface before and after it.
+	if err := daemon.Stop(p); err != nil {
+		t.Fatalf("stop daemon: %v", err)
+	}
+
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatalf("find git: %v", err)
+	}
+	callsPath := filepath.Join(t.TempDir(), "remote-git-calls")
+	wrapperDir := t.TempDir()
+	wrapperPath := filepath.Join(wrapperDir, "git")
+	wrapper := fmt.Sprintf(`#!/bin/sh
+case "$1" in
+fetch|ls-remote) printf '%%s\\n' "$1" >> "$NM_STATUS_GIT_CALLS"; exit 97 ;;
+esac
+exec %q "$@"
+`, gitBin)
+	if runtime.GOOS == "windows" {
+		wrapperPath += ".cmd"
+		wrapper = fmt.Sprintf(`@echo off
+if /I "%%~1"=="fetch" goto remote
+if /I "%%~1"=="ls-remote" goto remote
+%q %%*
+exit /b %%ERRORLEVEL%%
+:remote
+echo %%~1>> "%%NM_STATUS_GIT_CALLS%%"
+exit /b 97
+`, gitBin)
+	}
+	if err := os.WriteFile(wrapperPath, []byte(wrapper), 0o755); err != nil {
+		t.Fatalf("write git wrapper: %v", err)
+	}
+	t.Setenv("NM_STATUS_GIT_CALLS", callsPath)
+	t.Setenv("PATH", wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	fetchHead := filepath.Join(repoDir, ".git", "FETCH_HEAD")
+	if err := os.WriteFile(fetchHead, []byte("cached-only-sentinel\\n"), 0o644); err != nil {
+		t.Fatalf("seed FETCH_HEAD: %v", err)
+	}
+	before := snapshotStatusReadSurface(t, repoDir, p.DB())
+
+	out, err := executeCmd("status")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !strings.Contains(out, "local state:  cached:") {
+		t.Fatalf("status did not render cached state:\n%s", out)
+	}
+	if calls, err := os.ReadFile(callsPath); err == nil && len(calls) > 0 {
+		t.Fatalf("status must not call remote git operations; got %q", calls)
+	} else if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read remote git call log: %v", err)
+	}
+
+	after := snapshotStatusReadSurface(t, repoDir, p.DB())
+	if !before.equal(after) {
+		t.Fatalf("status mutated cached-only state:\n%s", before.diff(after))
+	}
+}
+
+type statusReadSurface struct {
+	fetchHead fileSnapshot
+	index     fileSnapshot
+	database  fileSnapshot
+	dbWAL     fileSnapshot
+	refs      []byte
+	worktree  []byte
+}
+
+type fileSnapshot struct {
+	present bool
+	data    []byte
+}
+
+func snapshotStatusReadSurface(t *testing.T, repoDir, databasePath string) statusReadSurface {
+	t.Helper()
+	return statusReadSurface{
+		fetchHead: snapshotFile(t, filepath.Join(repoDir, ".git", "FETCH_HEAD")),
+		index:     snapshotFile(t, filepath.Join(repoDir, ".git", "index")),
+		database:  snapshotFile(t, databasePath),
+		dbWAL:     snapshotFile(t, databasePath+"-wal"),
+		refs:      gitReadSurface(t, repoDir, "show-ref", "--head"),
+		worktree:  gitReadSurface(t, repoDir, "status", "--porcelain=v1", "--untracked-files=all"),
+	}
+}
+
+func snapshotFile(t *testing.T, path string) fileSnapshot {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err == nil {
+		return fileSnapshot{present: true, data: data}
+	}
+	if os.IsNotExist(err) {
+		return fileSnapshot{}
+	}
+	t.Fatalf("read %s: %v", path, err)
+	return fileSnapshot{}
+}
+
+func gitReadSurface(t *testing.T, repoDir string, args ...string) []byte {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repoDir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return out
+}
+
+func (s statusReadSurface) equal(other statusReadSurface) bool {
+	return s.fetchHead.equal(other.fetchHead) &&
+		s.index.equal(other.index) &&
+		s.database.equal(other.database) &&
+		s.dbWAL.equal(other.dbWAL) &&
+		bytes.Equal(s.refs, other.refs) &&
+		bytes.Equal(s.worktree, other.worktree)
+}
+
+func (s statusReadSurface) diff(other statusReadSurface) string {
+	var changed []string
+	if !s.fetchHead.equal(other.fetchHead) {
+		changed = append(changed, "FETCH_HEAD")
+	}
+	if !s.index.equal(other.index) {
+		changed = append(changed, "index")
+	}
+	if !s.database.equal(other.database) {
+		changed = append(changed, "gate database")
+	}
+	if !s.dbWAL.equal(other.dbWAL) {
+		changed = append(changed, "gate database WAL")
+	}
+	if !bytes.Equal(s.refs, other.refs) {
+		changed = append(changed, "refs")
+	}
+	if !bytes.Equal(s.worktree, other.worktree) {
+		changed = append(changed, "worktree")
+	}
+	return strings.Join(changed, ", ")
+}
+
+func (s fileSnapshot) equal(other fileSnapshot) bool {
+	return s.present == other.present && bytes.Equal(s.data, other.data)
 }
 
 func TestCachedBranchSummary(t *testing.T) {

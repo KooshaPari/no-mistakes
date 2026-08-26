@@ -371,7 +371,7 @@ The command uses the same service and safety contract as `no-mistakes axi sync`,
 
 ## no-mistakes status
 
-Show repo, daemon, active run, and relevant cached local-branch synchronization status.
+Show repo, daemon, active run, and cached local-branch synchronization status.
 
 ```sh
 no-mistakes status
@@ -383,6 +383,12 @@ Displays:
 - Gate path
 - Daemon status (running/stopped, PID)
 - Active run details: ID, branch, status, head SHA, start time
+- Cached local repository state: branch, short `HEAD`, cleanliness, and the
+  locally recorded synchronization guidance
+
+The cached local-state line is always present once a repository is registered.
+It is local evidence only: `status` does not fetch, query a remote, or claim
+that the remote branch is currently fresh.
 
 ## no-mistakes runs
 
