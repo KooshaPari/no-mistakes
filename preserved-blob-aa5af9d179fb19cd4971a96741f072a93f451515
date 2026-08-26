@@ -1,0 +1,71 @@
+package steps
+
+import (
+	"context"
+	"os/exec"
+	"strings"
+
+	"github.com/kunchenguid/no-mistakes/internal/pipeline"
+	"github.com/kunchenguid/no-mistakes/internal/types"
+)
+
+// WorktreeGcStep flags stale git worktree pointers whose dir is gone.
+type WorktreeGcStep struct{}
+
+func (WorktreeGcStep) Name() types.StepName { return types.StepWorktreeGc }
+
+func (WorktreeGcStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, error) {
+	if sctx == nil {
+		return &pipeline.StepOutcome{ExitCode: 0}, nil
+	}
+	out, err := exec.CommandContext(sctx.Ctx, "git", "-C", sctx.WorkDir,
+		"worktree", "list", "--porcelain").CombinedOutput()
+	if err != nil {
+		return &pipeline.StepOutcome{
+			Findings: `{"severity":"warn","message":"` + err.Error() + `"}`,
+			ExitCode: 1,
+		}, nil
+	}
+	stale := 0
+	active := 0
+	for _, block := range strings.Split(string(out), "\n\n") {
+		lines := strings.Split(block, "\n")
+		var path string
+		for _, ln := range lines {
+			if strings.HasPrefix(ln, "worktree ") {
+				path = strings.TrimPrefix(ln, "worktree ")
+				break
+			}
+		}
+		if path == "" {
+			continue
+		}
+		// dir exists? try `git -C path rev-parse` which fails cleanly on missing dir
+		if statErr := exec.CommandContext(sctx.Ctx, "git", "-C", path,
+			"rev-parse", "--git-dir").Run(); statErr == nil {
+			active++
+			continue
+		}
+		stale++
+		sctx.Log("worktree-gc: stale pointer " + path)
+	}
+	sev := "info"
+	msg := "all worktrees active (" + itoa(active) + ")"
+	if stale > 0 {
+		sev = "warn"
+		msg = itoa(stale) + " stale worktree pointer(s), " + itoa(active) + " active"
+	}
+	return &pipeline.StepOutcome{
+		Findings: `{"severity":"` + sev + `","message":"` + msg + `"}`,
+		ExitCode: 0,
+	}, nil
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	return string(rune('0' + n))
+}
+
+var _ context.Context
