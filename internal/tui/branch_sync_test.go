@@ -228,6 +228,35 @@ func TestRecoverableCustodyActionFlowsThroughConfirmationAndRecoverService(t *te
 	}
 }
 
+// TestExplicitVerificationCustodyActionOffersGuardedRecovery keeps the explicit
+// verification state in the same confirmation-only recovery path. Inspecting
+// that state never proves an adoption, so the TUI must expose the existing
+// guarded control rather than allowing a follow-up commit or hiding recovery.
+func TestExplicitVerificationCustodyActionOffersGuardedRecovery(t *testing.T) {
+	m := NewModel("socket", nil, &ipc.RunInfo{ID: "run-1", Branch: "feature", Status: types.RunCancelled})
+	m.branchSync = &branchsync.State{
+		State: branchsync.StatePipelineOwned, Safety: "blocked_recover_explicit_verification_required",
+		Local:      branchsync.LocalState{Branch: "feature", Head: strings.Repeat("a", 40), Clean: true},
+		Pipeline:   branchsync.PipelineState{RunID: "run-1", Status: "cancelled", Phase: "pre_push", CurrentHead: strings.Repeat("c", 40)},
+		NextAction: &branchsync.NextAction{Code: "recover_custody", Command: "no-mistakes axi sync --recover"},
+	}
+	m.syncRecover = func() branchsync.State {
+		t.Fatal("recovery must remain guarded by confirmation")
+		return branchsync.State{}
+	}
+
+	view := stripANSI(renderLocalBranchStatus(m.branchSync, false, 80))
+	if !strings.Contains(view, "u recover custody") {
+		t.Fatalf("explicit-verification status hid recovery control:\n%s", view)
+	}
+
+	next, cmd := m.handleKey(keyMsg("u"))
+	m = next.(Model)
+	if cmd != nil || !m.recoverConfirm {
+		t.Fatalf("u must open guarded recovery confirmation: command=%v confirm=%v", cmd != nil, m.recoverConfirm)
+	}
+}
+
 // TestActivePipelineOwnedStateOffersNoRecoveryAction pins that the recovery
 // affordance never appears while the owning run is still active.
 func TestActivePipelineOwnedStateOffersNoRecoveryAction(t *testing.T) {
