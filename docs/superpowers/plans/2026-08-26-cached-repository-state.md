@@ -168,7 +168,10 @@ refs, worktree state, and the gate database before and after the command.
 Assert that the command renders cached state, makes no remote Git call, and
 does not change any snapshot. Also exercise a locally available diverged head
 and snapshot `.git/objects`: cached inspection must conservatively report
-`blocked_diverged` without constructing a merge tree.
+`blocked_diverged` without constructing a merge tree. Cover the terminal
+recovery shape where both divergent heads exist only in the local gate and
+snapshot that bare repository's `objects` directory: cached inspection must
+defer semantic verification to explicit recovery.
 
 - [x] **Step 2: State the user-facing freshness boundary**
 
