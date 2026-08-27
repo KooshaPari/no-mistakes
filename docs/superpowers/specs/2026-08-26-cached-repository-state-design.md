@@ -17,11 +17,13 @@ meaningful displayed state change is observable by the sampled read surface.
 ## Safety contract
 
 `InspectCached` is the data source because it explicitly does not fetch,
-contact a remote, alter the Git object database, alter refs, alter the index,
-alter the worktree, create a pipeline run, or mutate the database. It must
+contact a remote, alter either the invoking repository or local gate Git object
+database, alter refs, alter the index, alter the worktree, create a pipeline
+run, or mutate the database. It must
 also report unavailable cleanliness as unavailable rather than as confirmed
 dirtiness. Semantic equivalence for diverged histories is deferred to an
-explicit refresh, because Git's merge-tree proof can write an object. The
+explicit refresh or recovery, because Git's merge-tree proof can write an
+object. The
 output must say `cached`; it must not claim current remote freshness.
 
 ## Non-goals
