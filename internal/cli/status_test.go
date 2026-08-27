@@ -278,6 +278,19 @@ func TestCachedBranchSummary(t *testing.T) {
 			want: "cached: feature/state 01234567 (cleanliness unavailable: run `git status`; pipeline fix is not pushed yet; do not make local follow-up commits)",
 		},
 		{
+			name: "explicit verification recovery retains exact command",
+			state: branchsync.State{
+				State:  branchsync.StatePipelineOwned,
+				Safety: "blocked_recover_explicit_verification_required",
+				Local:  branchsync.LocalState{Branch: "feature/state", Head: "0123456789abcdef", Clean: true},
+				NextAction: &branchsync.NextAction{
+					Code:    "recover_custody",
+					Command: "no-mistakes axi sync --recover",
+				},
+			},
+			want: "cached: feature/state 01234567 (clean; recovery requires explicit verification: run `no-mistakes axi sync --recover`)",
+		},
+		{
 			name:  "unavailable",
 			state: branchsync.State{State: branchsync.StateAmbiguousContext},
 			want:  "cached: unavailable (ambiguous context)",

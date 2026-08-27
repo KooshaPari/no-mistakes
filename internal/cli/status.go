@@ -95,6 +95,9 @@ func statusFingerprint(repoID, daemonState string, activeRun *db.Run, cachedSumm
 
 func cachedBranchSummary(state branchsync.State) string {
 	summary := humanSyncSummary(state)
+	if state.Safety == "blocked_recover_explicit_verification_required" && state.NextAction != nil && state.NextAction.Code == "recover_custody" {
+		summary = "recovery requires explicit verification: run `" + state.NextAction.Command + "`"
+	}
 	if state.Local.Branch == "" || state.Local.Head == "" {
 		return "cached: unavailable (" + summary + ")"
 	}
