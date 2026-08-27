@@ -387,8 +387,12 @@ Displays:
   locally recorded synchronization guidance
 
 The cached local-state line is always present once a repository is registered.
-It is local evidence only: `status` does not fetch, query a remote, or claim
-that the remote branch is currently fresh.
+It is local evidence only: its Git inspection does not fetch or query a Git
+remote, and it does not claim that the remote branch is currently fresh. That
+inspection does not mutate the local Git object database, refs, index, or
+worktree; a Git-status failure is labelled as unavailable rather than as
+confirmed dirtiness. `status` may still record its normal local command
+telemetry separately.
 
 ## no-mistakes runs
 

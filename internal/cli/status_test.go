@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -126,6 +127,7 @@ type statusReadSurface struct {
 	dbWAL     fileSnapshot
 	refs      []byte
 	worktree  []byte
+	objects   map[string][]byte
 }
 
 type fileSnapshot struct {
@@ -142,7 +144,35 @@ func snapshotStatusReadSurface(t *testing.T, repoDir, databasePath string) statu
 		dbWAL:     snapshotFile(t, databasePath+"-wal"),
 		refs:      gitReadSurface(t, repoDir, "show-ref", "--head"),
 		worktree:  gitReadSurface(t, repoDir, "status", "--porcelain=v1", "--untracked-files=all"),
+		objects:   snapshotDirectoryFiles(t, filepath.Join(repoDir, ".git", "objects")),
 	}
+}
+
+func snapshotDirectoryFiles(t *testing.T, root string) map[string][]byte {
+	t.Helper()
+	files := make(map[string][]byte)
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files[rel] = contents
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("snapshot directory %s: %v", root, err)
+	}
+	return files
 }
 
 func snapshotFile(t *testing.T, path string) fileSnapshot {
@@ -175,7 +205,8 @@ func (s statusReadSurface) equal(other statusReadSurface) bool {
 		s.database.equal(other.database) &&
 		s.dbWAL.equal(other.dbWAL) &&
 		bytes.Equal(s.refs, other.refs) &&
-		bytes.Equal(s.worktree, other.worktree)
+		bytes.Equal(s.worktree, other.worktree) &&
+		reflect.DeepEqual(s.objects, other.objects)
 }
 
 func (s statusReadSurface) diff(other statusReadSurface) string {
@@ -197,6 +228,9 @@ func (s statusReadSurface) diff(other statusReadSurface) string {
 	}
 	if !bytes.Equal(s.worktree, other.worktree) {
 		changed = append(changed, "worktree")
+	}
+	if !reflect.DeepEqual(s.objects, other.objects) {
+		changed = append(changed, "Git objects")
 	}
 	return strings.Join(changed, ", ")
 }
@@ -226,6 +260,14 @@ func TestCachedBranchSummary(t *testing.T) {
 				Local: branchsync.LocalState{Branch: "feature/state", Head: "fedcba9876543210", Reason: "uncommitted changes"},
 			},
 			want: "cached: feature/state fedcba98 (dirty: uncommitted changes; dirty)",
+		},
+		{
+			name: "cleanliness unavailable",
+			state: branchsync.State{
+				State: branchsync.StateDirty,
+				Local: branchsync.LocalState{Branch: "feature/state", Head: "0123456789abcdef", Reason: "status_unavailable"},
+			},
+			want: "cached: feature/state 01234567 (cleanliness unavailable: run `git status`)",
 		},
 		{
 			name:  "unavailable",
