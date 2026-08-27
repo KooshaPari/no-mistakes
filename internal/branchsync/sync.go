@@ -255,9 +255,10 @@ func displayTarget(raw string) string {
 	return safeurl.Redact(raw)
 }
 
-// InspectCached reads local Git, persisted provenance, and read-only gate
-// ancestry evidence without fetching or mutating refs, the index, or the
-// worktree.
+// InspectCached reads local Git and persisted provenance without fetching or
+// mutating the Git object database, refs, index, or worktree. Semantic
+// equivalence of diverged histories is intentionally deferred to Refresh,
+// whose explicit operation may construct a temporary merge tree.
 func (s *Service) InspectCached(ctx context.Context) State {
 	state, _, _ := s.inspect(ctx)
 	return state
@@ -1206,14 +1207,13 @@ func (s *Service) classifyRelation(ctx context.Context, state *State, pushed, ba
 			state.NextAction = &NextAction{Code: "run_pipeline", Command: `no-mistakes axi run --intent "<what the user set out to accomplish>"`}
 			return
 		default:
-			if equivalentDivergence(ctx, s.workDir(), state.Local.Head, pushed, base) {
+			// Equivalence uses `git merge-tree --write-tree`, which can add an
+			// object even though no ref or worktree changes. A cached inspection
+			// promises no local mutation, so reserve that proof for Refresh.
+			if live && equivalentDivergence(ctx, s.workDir(), state.Local.Head, pushed, base) {
 				state.State = StateDiverged
 				state.Relation = RelationDiverged
-				if live {
-					state.Safety = SafetySafeEquivalentAdvance
-				} else {
-					state.Safety = "refresh_required"
-				}
+				state.Safety = SafetySafeEquivalentAdvance
 				state.NextAction = &NextAction{Code: "sync", Command: "no-mistakes axi sync"}
 				state.Error = ""
 				return

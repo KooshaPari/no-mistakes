@@ -100,6 +100,9 @@ func cachedBranchSummary(state branchsync.State) string {
 	}
 
 	head := state.Local.Head[:minLen(len(state.Local.Head), 8)]
+	if state.Local.Reason == "status_unavailable" {
+		return fmt.Sprintf("cached: %s %s (cleanliness unavailable: run `git status`)", state.Local.Branch, head)
+	}
 	cleanliness := "clean"
 	if !state.Local.Clean {
 		cleanliness = "dirty"

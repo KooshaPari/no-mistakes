@@ -166,12 +166,17 @@ Run `status` after `init` through a test-local Git wrapper that records any
 `fetch` or `ls-remote` invocation. Snapshot `.git/FETCH_HEAD`, `.git/index`,
 refs, worktree state, and the gate database before and after the command.
 Assert that the command renders cached state, makes no remote Git call, and
-does not change any snapshot.
+does not change any snapshot. Also exercise a locally available diverged head
+and snapshot `.git/objects`: cached inspection must conservatively report
+`blocked_diverged` without constructing a merge tree.
 
 - [x] **Step 2: State the user-facing freshness boundary**
 
-Document that the always-rendered cached local-state line is local evidence,
-does not fetch or query remotes, and does not assert remote freshness.
+Document that the always-rendered cached local-state line's Git inspection is
+local evidence, does not fetch or query a Git remote, does not mutate local
+Git state, and does not assert remote freshness. Existing command telemetry
+is a separate concern. A Git-status failure must render cleanliness as
+unavailable, never as a confirmed dirty worktree.
 
 - [x] **Step 3: Run focused and full verification**
 
