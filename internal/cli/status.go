@@ -85,8 +85,8 @@ func newStatusCmd() *cobra.Command {
 	}
 }
 
-func statusFingerprint(repoID, daemonState string, activeRun *db.Run, cachedSummary string) string {
-	base := repoID + "|" + daemonState + "|" + cachedSummary
+func statusFingerprint(repoID, daemonState string, activeRun *db.Run, _ string) string {
+	base := repoID + "|" + daemonState
 	if activeRun == nil {
 		return base + "|idle"
 	}

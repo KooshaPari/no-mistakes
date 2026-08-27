@@ -306,11 +306,11 @@ func TestCachedBranchSummary(t *testing.T) {
 	}
 }
 
-func TestStatusFingerprintIncludesCachedSummary(t *testing.T) {
+func TestStatusFingerprintIgnoresCachedSummary(t *testing.T) {
 	run := &db.Run{ID: "run-1", Branch: "feature/test", Status: "running", HeadSHA: "head-one"}
 	before := statusFingerprint("repo", "running", run, "cached: main 01234567 (clean; synchronized)")
 	after := statusFingerprint("repo", "running", run, "cached: main 89abcdef (dirty; dirty)")
-	if before == after {
-		t.Fatal("changing displayed cached evidence must change the status fingerprint")
+	if before != after {
+		t.Fatal("changing only cached local evidence must not change the command telemetry fingerprint")
 	}
 }
