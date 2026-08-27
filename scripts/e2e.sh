@@ -61,7 +61,10 @@ if [[ "$#" -eq 0 ]]; then
   # The user-journey matrix runs native backends serially because each case
   # owns process-wide environment. Four backends plus the remaining package
   # journeys no longer fit the historical five-minute package budget.
-  set -- -tags=e2e -count=1 -timeout 480s ./internal/e2e/... ./internal/pipeline/steps/...
+  # The complete serial-native journey matrix measured 477 seconds on the
+  # supported macOS runner. Keep a bounded but realistic 10-minute budget so
+  # the package deadline detects hangs rather than preempting healthy tests.
+  set -- -tags=e2e -count=1 -timeout 10m ./internal/e2e/... ./internal/pipeline/steps/...
 fi
 
 go test "$@"
