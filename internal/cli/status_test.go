@@ -267,7 +267,15 @@ func TestCachedBranchSummary(t *testing.T) {
 				State: branchsync.StateDirty,
 				Local: branchsync.LocalState{Branch: "feature/state", Head: "0123456789abcdef", Reason: "status_unavailable"},
 			},
-			want: "cached: feature/state 01234567 (cleanliness unavailable: run `git status`)",
+			want: "cached: feature/state 01234567 (cleanliness unavailable: run `git status`; local branch status is unavailable)",
+		},
+		{
+			name: "unavailable cleanliness retains pipeline guidance",
+			state: branchsync.State{
+				State: branchsync.StatePipelineOwned,
+				Local: branchsync.LocalState{Branch: "feature/state", Head: "0123456789abcdef", Reason: "status_unavailable"},
+			},
+			want: "cached: feature/state 01234567 (cleanliness unavailable: run `git status`; pipeline fix is not pushed yet; do not make local follow-up commits)",
 		},
 		{
 			name:  "unavailable",
