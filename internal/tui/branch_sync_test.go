@@ -171,8 +171,9 @@ func TestRecoverableCustodyActionFlowsThroughConfirmationAndRecoverService(t *te
 	m := NewModel("socket", nil, run)
 	stranded := branchsync.State{
 		State: branchsync.StatePipelineOwned, Relation: branchsync.RelationUnknown, Safety: "blocked_pipeline_owned_recoverable",
-		Local:    branchsync.LocalState{Branch: "feature", Head: strings.Repeat("a", 40), Clean: true},
-		Pipeline: branchsync.PipelineState{RunID: "run-1", Status: "cancelled", Phase: "pre_push", CurrentHead: strings.Repeat("c", 40)},
+		Local:      branchsync.LocalState{Branch: "feature", Head: strings.Repeat("a", 40), Clean: true},
+		Pipeline:   branchsync.PipelineState{RunID: "run-1", Status: "cancelled", Phase: "pre_push", CurrentHead: strings.Repeat("c", 40)},
+		NextAction: &branchsync.NextAction{Code: "recover_custody", Command: "no-mistakes axi sync --recover"},
 	}
 	m.branchSync = &stranded
 
@@ -254,6 +255,16 @@ func TestExplicitVerificationCustodyActionOffersGuardedRecovery(t *testing.T) {
 	m = next.(Model)
 	if cmd != nil || !m.recoverConfirm {
 		t.Fatalf("u must open guarded recovery confirmation: command=%v confirm=%v", cmd != nil, m.recoverConfirm)
+	}
+}
+
+func TestRecoveryStateWithoutRecoveryActionRemainsBlocked(t *testing.T) {
+	state := &branchsync.State{
+		State:  branchsync.StatePipelineOwned,
+		Safety: "blocked_recover_explicit_verification_required",
+	}
+	if recoverableBranchSync(state) {
+		t.Fatal("a state without recover_custody action exposed guarded recovery")
 	}
 }
 
