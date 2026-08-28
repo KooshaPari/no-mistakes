@@ -23,9 +23,11 @@ const EmptyTreeSHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 // Git flag constants to avoid duplicating flag names.
 const (
-	gitVerify       = "--verify"
-	gitVerifyQuiet  = "--quiet"
-	gitCommitObject = "^{commit}"
+	gitVerify           = "--verify"
+	gitVerifyQuiet      = "--quiet"
+	gitCommitObject     = "^{commit}"
+	gitFetchNoTags      = "--no-tags"
+	gitFetchNoWriteHead = "--no-write-fetch-head"
 )
 
 // IsZeroSHA returns true if the SHA is the null/zero ref that git uses for
@@ -465,13 +467,13 @@ func DefaultBranch(ctx context.Context, dir, remote string) string {
 // a force push on the remote) are accepted instead of silently rejected.
 func FetchRemoteBranch(ctx context.Context, dir, remote, branch string) error {
 	refspec := fmt.Sprintf("+refs/heads/%s:refs/remotes/%s/%s", branch, remote, branch)
-	_, err := Run(ctx, dir, "fetch", "--no-tags", remote, refspec)
+	_, err := Run(ctx, dir, "fetch", gitFetchNoTags, remote, refspec)
 	return err
 }
 
 func FetchRemoteBranchToRef(ctx context.Context, dir, remote, branch, localRef string) error {
 	refspec := fmt.Sprintf("+refs/heads/%s:%s", branch, localRef)
-	_, err := Run(ctx, dir, "fetch", "--no-tags", remote, refspec)
+	_, err := Run(ctx, dir, "fetch", gitFetchNoTags, remote, refspec)
 	return err
 }
 
@@ -479,7 +481,7 @@ func FetchRemoteBranchToRef(ctx context.Context, dir, remote, branch, localRef s
 // ref without touching FETCH_HEAD or ordinary remote-tracking refs.
 func FetchRemoteBranchToPrivateRef(ctx context.Context, dir, remote, branch, localRef string) error {
 	refspec := fmt.Sprintf("+refs/heads/%s:%s", branch, localRef)
-	_, err := Run(ctx, dir, "fetch", "--no-tags", "--no-write-fetch-head", remote, refspec)
+	_, err := Run(ctx, dir, "fetch", gitFetchNoTags, gitFetchNoWriteHead, remote, refspec)
 	return err
 }
 
@@ -493,7 +495,7 @@ func FetchRemoteRef(ctx context.Context, dir, remote, remoteRef, expectedCommit 
 		_, _ = Run(context.WithoutCancel(ctx), dir, "update-ref", "--no-deref", "-d", temporaryRef)
 	}()
 	refspec := fmt.Sprintf("+%s:%s", remoteRef, temporaryRef)
-	if _, err := Run(ctx, dir, "fetch", "--no-tags", "--no-write-fetch-head", remote, refspec); err != nil {
+	if _, err := Run(ctx, dir, "fetch", gitFetchNoTags, gitFetchNoWriteHead, remote, refspec); err != nil {
 		return err
 	}
 	fetched, err := Run(ctx, dir, "rev-parse", gitVerify, temporaryRef+gitCommitObject)
