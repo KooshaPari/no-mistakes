@@ -1443,9 +1443,9 @@ var reservedAgentArgs = map[string]map[string]bool{
 		"-c":           true,
 		"--continue":   true,
 		"-r":           true,
-		"--resume":     true,
+		flagResume:     true,
 		"--session":    true,
-		"--session-id": true,
+		flagSessionID:  true,
 		"--fork":       true,
 	},
 	string(types.AgentCopilot): {
