@@ -38,6 +38,21 @@ func TestRun_PreservesStderrWithLifecycleAwareRunner(t *testing.T) {
 	}
 }
 
+func TestRefExistsPreservesGitFailureContext(t *testing.T) {
+	installFakeGit(t, `printf 'rev-parse failed\n' >&2; exit 2`)
+
+	ok, err := RefExists(context.Background(), t.TempDir(), "refs/heads/main")
+	if err == nil {
+		t.Fatal("RefExists() error = nil, want fake git failure")
+	}
+	if ok {
+		t.Fatal("RefExists() = true after git failure")
+	}
+	if !strings.Contains(err.Error(), "rev-parse failed") {
+		t.Fatalf("RefExists() error = %q, want captured stderr", err)
+	}
+}
+
 func TestRun_CancellationStopsPipeHoldingDescendant(t *testing.T) {
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "descendant.pid")
