@@ -44,6 +44,25 @@ func TestLayout_DefaultPlacement(t *testing.T) {
 	}
 }
 
+func TestLayoutEmptyCheckoutInputsUseDefaultPlacement(t *testing.T) {
+	p := paths.WithRoot(t.TempDir())
+	layout := worktrees.New(p, map[string]string{filepath.Join(t.TempDir(), "repo"): t.TempDir()})
+
+	for _, workingPath := range []string{"", "   "} {
+		if root, ok := layout.CustomRoot(workingPath); ok || root != "" {
+			t.Errorf("CustomRoot(%q) = %q, %v; want empty, false", workingPath, root, ok)
+		}
+		if got, want := layout.Dir("repo", workingPath, "run"), p.WorktreeDir("repo", "run"); got != want {
+			t.Errorf("Dir(%q) = %q, want %q", workingPath, got, want)
+		}
+	}
+
+	root := filepath.Join(t.TempDir(), "external-runs")
+	if err := worktrees.CheckPlacement(p, "", root); err != nil {
+		t.Fatalf("CheckPlacement with unknown checkout rejected safe external root: %v", err)
+	}
+}
+
 // A repository with no entry keeps the default placement even when another
 // repository has one.
 func TestLayout_ConfiguredPlacement(t *testing.T) {
@@ -244,6 +263,38 @@ func TestContains(t *testing.T) {
 	sibling := filepath.Join(filepath.Dir(dir), filepath.Base(dir)+"-sibling")
 	if worktrees.Contains(dir, sibling) {
 		t.Errorf("Contains(%q, %q) = true, want false", dir, sibling)
+	}
+}
+
+func TestContainsRejectsEmptyArguments(t *testing.T) {
+	for _, tt := range []struct{ dir, path string }{
+		{"", ""},
+		{"", t.TempDir()},
+		{t.TempDir(), ""},
+		{"   ", t.TempDir()},
+		{t.TempDir(), "   "},
+	} {
+		if worktrees.Contains(tt.dir, tt.path) {
+			t.Errorf("Contains(%q, %q) = true, want false for blank input", tt.dir, tt.path)
+		}
+	}
+}
+
+func TestLayoutMatchesBrokenSymlinkCheckoutSpelling(t *testing.T) {
+	base := t.TempDir()
+	missingTarget := filepath.Join(base, "missing", "repo")
+	link := filepath.Join(base, "checkout-link")
+	if err := os.Symlink(missingTarget, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	p := paths.WithRoot(t.TempDir())
+	root := filepath.Join(base, "runs")
+	layout := worktrees.New(p, map[string]string{link: root})
+
+	for _, spelling := range []string{link, filepath.Join(link, "."), link + string(filepath.Separator)} {
+		if got, ok := layout.CustomRoot(spelling); !ok || got != root {
+			t.Errorf("CustomRoot(%q) = %q, %v; want %q, true", spelling, got, ok, root)
+		}
 	}
 }
 

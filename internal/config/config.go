@@ -1342,6 +1342,12 @@ func agentNamesText(names []types.AgentName) []string {
 	return out
 }
 
+// Flag constants for reservedAgentArgs to avoid duplicating literal strings.
+const (
+	flagResume    = "--resume"
+	flagSessionID = "--session-id"
+)
+
 // agentArgsOverrideAgents lists native agent names accepted as keys in
 // agent_args_override.
 var agentArgsOverrideAgents = map[string]bool{
@@ -1375,8 +1381,8 @@ var reservedAgentArgs = map[string]map[string]bool{
 		"--output-format": true,
 		"--json-schema":   true,
 		"-r":              true,
-		"--resume":        true,
-		"--session-id":    true,
+		flagResume:        true,
+		flagSessionID:     true,
 		"-c":              true,
 		"--continue":      true,
 		"--fork-session":  true,
@@ -1401,11 +1407,11 @@ var reservedAgentArgs = map[string]map[string]bool{
 		"--output-format":          true,
 		"--json-schema":            true,
 		"-r":                       true,
-		"--resume":                 true,
+		flagResume:                 true,
 		"-c":                       true,
 		"--continue":               true,
 		"--fork-session":           true,
-		"--session-id":             true,
+		flagSessionID:              true,
 		"--system-prompt-override": true,
 		"--system-prompt":          true,
 		"--rules":                  true,
@@ -1437,9 +1443,9 @@ var reservedAgentArgs = map[string]map[string]bool{
 		"-c":           true,
 		"--continue":   true,
 		"-r":           true,
-		"--resume":     true,
+		flagResume:     true,
 		"--session":    true,
-		"--session-id": true,
+		flagSessionID:  true,
 		"--fork":       true,
 	},
 	string(types.AgentCopilot): {

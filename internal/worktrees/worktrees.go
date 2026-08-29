@@ -267,6 +267,9 @@ func Canonical(path string) string {
 // is checked against the filesystem, which is the authority on whether two
 // names are one directory.
 func Contains(dir, path string) bool {
+	if strings.TrimSpace(dir) == "" || strings.TrimSpace(path) == "" {
+		return false
+	}
 	return containsBySpelling(dir, path) || containsByIdentity(dir, path)
 }
 

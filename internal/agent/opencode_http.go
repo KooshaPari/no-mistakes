@@ -12,6 +12,8 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/agentcfg"
 )
 
+const sessionPath = "/session/"
+
 func (a *opencodeAgent) ensureServer(ctx context.Context, cwd string, env []string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -84,7 +86,7 @@ func (a *opencodeAgent) connectEventStream(ctx context.Context, baseURL string) 
 }
 
 func (a *opencodeAgent) sendMessage(ctx context.Context, baseURL, sessionID, prompt string, schema json.RawMessage) (*opencodeMessageResponse, error) {
-	respBytes, err := doJSON(ctx, http.MethodPost, baseURL+"/session/"+sessionID+"/message", nil, a.messageBody(prompt, schema))
+	respBytes, err := doJSON(ctx, http.MethodPost, baseURL+sessionPath+sessionID+"/message", nil, a.messageBody(prompt, schema))
 	if err != nil {
 		return nil, err
 	}
@@ -128,13 +130,13 @@ func (a *opencodeAgent) messageBody(prompt string, schema json.RawMessage) map[s
 func (a *opencodeAgent) abortSession(baseURL, sessionID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	doJSON(ctx, http.MethodPost, baseURL+"/session/"+sessionID+"/abort", nil, nil)
+	doJSON(ctx, http.MethodPost, baseURL+sessionPath+sessionID+"/abort", nil, nil)
 }
 
 func (a *opencodeAgent) deleteSession(baseURL, sessionID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, baseURL+"/session/"+sessionID, nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, baseURL+sessionPath+sessionID, nil)
 	if req != nil {
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil && resp != nil {
