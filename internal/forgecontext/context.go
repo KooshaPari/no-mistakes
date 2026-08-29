@@ -32,6 +32,13 @@ func Resolve(ctx context.Context, profiles config.ForgeProfiles, upstreamURL, fo
 	if len(profiles) == 0 {
 		return nil, nil
 	}
+	for profileHost, profile := range profiles {
+		hasGitHubConfig := strings.TrimSpace(profile.GHConfigDir) != ""
+		hasGitLabConfig := strings.TrimSpace(profile.GLabConfigDir) != ""
+		if hasGitHubConfig == hasGitLabConfig {
+			return nil, fmt.Errorf("forge profile %q must set exactly one of gh_config_dir or glab_config_dir", profileHost)
+		}
+	}
 	upstreamHost := scm.ExtractHost(upstreamURL)
 	forkHost := scm.ExtractHost(forkURL)
 	profile, profileHost, ok, err := selectProfile(profiles, upstreamHost, forkHost)
@@ -68,7 +75,7 @@ func Resolve(ctx context.Context, profiles config.ForgeProfiles, upstreamURL, fo
 	}
 	targetHost := scm.ResolveHost(ctx, targetRemote)
 	profileProvider := scm.ProviderGitLab
-	if profile.GHConfigDir != "" {
+	if strings.TrimSpace(profile.GHConfigDir) != "" {
 		profileProvider = scm.ProviderGitHub
 	}
 	if detected := scm.DetectProviderStaticContext(ctx, targetRemote); detected != scm.ProviderUnknown && detected != profileProvider {
@@ -105,11 +112,19 @@ func configuredProviderForHost(profiles config.ForgeProfiles, targetHost string)
 	githubMatch := false
 	gitlabMatch := false
 	for _, profile := range profiles {
-		if profile.GHConfigDir != "" && githubConfigContainsHost(profile.GHConfigDir, targetHost) {
-			githubMatch = true
+		if profile.GHConfigDir != "" {
+			matches, err := githubConfigContainsHost(profile.GHConfigDir, targetHost)
+			if err != nil {
+				return scm.ProviderUnknown, err
+			}
+			githubMatch = githubMatch || matches
 		}
-		if profile.GLabConfigDir != "" && gitlabConfigContainsHost(profile.GLabConfigDir, targetHost) {
-			gitlabMatch = true
+		if profile.GLabConfigDir != "" {
+			matches, err := gitlabConfigContainsHost(profile.GLabConfigDir, targetHost)
+			if err != nil {
+				return scm.ProviderUnknown, err
+			}
+			gitlabMatch = gitlabMatch || matches
 		}
 	}
 	if githubMatch && gitlabMatch {
@@ -124,21 +139,21 @@ func configuredProviderForHost(profiles config.ForgeProfiles, targetHost string)
 	return scm.ProviderUnknown, nil
 }
 
-func githubConfigContainsHost(dir, targetHost string) bool {
+func githubConfigContainsHost(dir, targetHost string) (bool, error) {
 	hosts, err := loadGitHubHosts(dir)
 	if err != nil {
-		return false
+		return false, err
 	}
 	_, ok := githubHostEntryFor(hosts, targetHost)
-	return ok
+	return ok, nil
 }
 
-func gitlabConfigContainsHost(dir, targetHost string) bool {
+func gitlabConfigContainsHost(dir, targetHost string) (bool, error) {
 	cfg, err := loadGitLabConfig(dir)
 	if err != nil {
-		return false
+		return false, err
 	}
-	return gitlabConfigHasHost(cfg, targetHost)
+	return gitlabConfigHasHost(cfg, targetHost), nil
 }
 
 type githubHostEntry struct {
