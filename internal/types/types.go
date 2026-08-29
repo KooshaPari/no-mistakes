@@ -16,29 +16,48 @@ const (
 	RunCompleted RunStatus = "completed"
 	RunFailed    RunStatus = "failed"
 	RunCancelled RunStatus = "cancelled"
+	// RunCIMonitorInterrupted means the daemon restarted while babysitting an
+	// already-created PR. The PR remains intact, so this is not a pipeline
+	// failure.
+	RunCIMonitorInterrupted RunStatus = "ci_monitor_interrupted"
 )
 
 const (
-	RunCancelReasonAbortedByUser = "cancelled: aborted by user"
-	RunCancelReasonSuperseded    = "cancelled: superseded by new push"
+	RunCancelReasonAbortedByUser  = "cancelled: aborted by user"
+	RunCancelReasonSuperseded     = "cancelled: superseded by new push"
+	RunCIMonitorInterruptedReason = "ci monitor interrupted by daemon restart; PR remains open"
 )
+
+// Terminal reports whether the run has reached a final state the daemon will
+// never advance further. This is the single source of truth for "is this run
+// terminal": every enumeration of terminal statuses (branchsync custody
+// recovery, the axi drive outcome check, the e2e harness wait loop) routes
+// through it so a newly added terminal status can never drift out of sync.
+// RunCIMonitorInterrupted is terminal - the daemon restarted mid-CI-monitor
+// and the run is never resumed (issue #361) - so it must classify exactly like
+// completed/failed/cancelled.
+func (s RunStatus) Terminal() bool {
+	switch s {
+	case RunCompleted, RunFailed, RunCancelled, RunCIMonitorInterrupted:
+		return true
+	default:
+		return false
+	}
+}
 
 // StepName identifies a pipeline step.
 type StepName string
 
 const (
-	StepIntent      StepName = "intent"
-	StepRebase      StepName = "rebase"
-	StepReview      StepName = "review"
-	StepTest        StepName = "test"
-	StepDocument    StepName = "document"
-	StepLint        StepName = "lint"
-	StepPush        StepName = "push"
-	StepPR          StepName = "pr"
-	StepCI          StepName = "ci"
-	StepWorktreeGc  StepName = "worktree-gc"
-	StepBranchLint  StepName = "branch-lint"
-	StepHealthCheck StepName = "health-check"
+	StepIntent   StepName = "intent"
+	StepRebase   StepName = "rebase"
+	StepReview   StepName = "review"
+	StepTest     StepName = "test"
+	StepDocument StepName = "document"
+	StepLint     StepName = "lint"
+	StepPush     StepName = "push"
+	StepPR       StepName = "pr"
+	StepCI       StepName = "ci"
 )
 
 func normalizeStepName(s StepName) StepName {
@@ -98,12 +117,6 @@ func (s StepName) Order() int {
 		return 8
 	case StepCI:
 		return 9
-	case StepWorktreeGc:
-		return 10
-	case StepBranchLint:
-		return 11
-	case StepHealthCheck:
-		return 12
 	default:
 		return 0
 	}
@@ -111,7 +124,7 @@ func (s StepName) Order() int {
 
 // AllSteps returns all pipeline steps in execution order.
 func AllSteps() []StepName {
-	return []StepName{StepIntent, StepRebase, StepReview, StepTest, StepDocument, StepLint, StepPush, StepPR, StepCI, StepWorktreeGc, StepBranchLint, StepHealthCheck}
+	return []StepName{StepIntent, StepRebase, StepReview, StepTest, StepDocument, StepLint, StepPush, StepPR, StepCI}
 }
 
 // StepStatus represents the lifecycle state of a pipeline step.
@@ -143,14 +156,16 @@ const (
 type AgentName string
 
 const (
-	AgentAuto     AgentName = "auto"
-	AgentClaude   AgentName = "claude"
-	AgentCodex    AgentName = "codex"
-	AgentRovoDev  AgentName = "rovodev"
-	AgentOpenCode AgentName = "opencode"
-	AgentPi       AgentName = "pi"
-	AgentCopilot  AgentName = "copilot"
-	AgentCursor   AgentName = "cursor"
+	AgentAuto        AgentName = "auto"
+	AgentClaude      AgentName = "claude"
+	AgentCodex       AgentName = "codex"
+	AgentGrok        AgentName = "grok"
+	AgentRovoDev     AgentName = "rovodev"
+	AgentOpenCode    AgentName = "opencode"
+	AgentPi          AgentName = "pi"
+	AgentCopilot     AgentName = "copilot"
+	AgentCursor      AgentName = "cursor"
+	AgentAntigravity AgentName = "antigravity"
 )
 
 // ACPAlias describes a first-class agent name that resolves to an ACP target.

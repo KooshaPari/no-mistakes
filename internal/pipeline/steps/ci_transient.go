@@ -52,6 +52,15 @@ func classifyCheckFailure(check scm.Check) failureClass {
 	if !checkFailedTerminally(check) {
 		return classUnknown
 	}
+	// A failure the provider produced before the repository's own steps ran is an
+	// infrastructure outcome, not a verdict on the code: the job's setup phase
+	// failed (e.g. a GitHub Actions action-download outage) so no repository step
+	// executed. It is as re-runnable as a cancellation, and it can never mask a
+	// real failure - a genuine test or lint failure cleared setup and failed a
+	// later step, so it is never marked PreRunFailure.
+	if check.PreRunFailure {
+		return classTransient
+	}
 	switch strings.ToUpper(strings.TrimSpace(check.State)) {
 	case "CANCELLED", "CANCELED":
 		return classTransient
@@ -336,6 +345,35 @@ func (b *checkRerunBudget) cancelledAfterRerun(checks []scm.Check) (unresolved, 
 	return unresolved, awaiting
 }
 
+// cancelledWithoutRerun returns the checks the provider cancelled that this run
+// has not spent a rerun on, deduplicated by name.
+//
+// A cancelled check is terminal: the provider has published a conclusion for it
+// and will not publish another one by itself. A rerun is the only thing that
+// could replace it, and a check with none spent either had no budget (the
+// default) or exhausted it, so there is nothing outstanding to wait for. That
+// makes these checks unresolved in the same sense as the ones that came back
+// cancelled after their rerun, and they belong at the same gate.
+//
+// Checks this run DID re-run are deliberately excluded: cancelledAfterRerun
+// owns those, because it also has to tell a republished rerun apart from a
+// rollup that has not refreshed yet, and it spends rollup grace while doing so.
+func (b *checkRerunBudget) cancelledWithoutRerun(checks []scm.Check) []string {
+	var names []string
+	seen := map[string]struct{}{}
+	for _, check := range checks {
+		if check.Bucket != scm.CheckBucketCancel || b.used(check.Name) > 0 {
+			continue
+		}
+		if _, ok := seen[check.Name]; ok {
+			continue
+		}
+		seen[check.Name] = struct{}{}
+		names = append(names, check.Name)
+	}
+	return names
+}
+
 // rollupUnchanged reports whether check still carries the exact completion it
 // reported when its rerun was requested. An unknown completion on either side
 // is not evidence of anything, so it reads as changed and the check is treated
@@ -539,7 +577,7 @@ func (s *CIStep) rerunTransientChecks(sctx *pipeline.StepContext, host scm.Host,
 		issued = true
 		// used can never exceed limit: selection reserved this rerun against
 		// the same shared budget key before it was spent.
-		sctx.Log(fmt.Sprintf("re-running CI check %s (%d/%d): provider reported %s, not a job failure", check.Name, used, limit, transientStateLabel(check)))
+		sctx.Log(fmt.Sprintf("re-running CI check %s (%d/%d): %s, not a job failure", check.Name, used, limit, transientReason(check)))
 	}
 	return issued, nil
 }
@@ -578,19 +616,92 @@ func transientStateLabel(check scm.Check) string {
 	return string(check.Bucket)
 }
 
-// ciUnresolvedCancelledOutcome parks the run for checks the provider cancelled
-/ and will not resolve on their own: either the run already spent their rerun
-// budget and they came back cancelled, or no rerun was ever authorized for them.
+// transientReason describes why a check is being re-run rather than escalated,
+// so a pre-run infrastructure failure is not logged as the "failure" its
+// provider state still reports.
+func transientReason(check scm.Check) string {
+	if check.PreRunFailure {
+		return "it failed before the repository's own steps ran (setup/action resolution)"
+	}
+	return fmt.Sprintf("provider reported %s", transientStateLabel(check))
+}
+
+// markPreRunInfraFailures asks the provider which failed checks it failed before
+// any repository step ran and re-buckets those into the transient path: a
+// setup/action-resolution outage is not a verdict on the code, so it earns the
+// same rerun-then-park treatment as a provider cancellation rather than a fix
+// round. It is gated on the transient rerun budget being enabled, so a repo that
+// has not opted in pays no extra provider calls and keeps the prior behavior.
+//
+// It re-buckets a flagged check to the cancel bucket (leaving its provider State
+// untouched) so the entire cancel-shaped monitor path - kept out of the fix
+// agent, re-run within budget, parked for a decision if it never clears - is
+// reused unchanged. classifyCheckFailure reads PreRunFailure, not the bucket, so
+// the check still classifies transient despite its FAILURE state.
+func markPreRunInfraFailures(sctx *pipeline.StepContext, host scm.Host, checks []scm.Check) {
+	if sctx.Config.CI.RerunTransient <= 0 {
+		return
+	}
+	detector, ok := host.(scm.PreRunFailureDetector)
+	if !ok {
+		return
+	}
+	var failedIdx []int
+	for i := range checks {
+		if checks[i].Failing() {
+			failedIdx = append(failedIdx, i)
+		}
+	}
+	if len(failedIdx) == 0 {
+		return
+	}
+	failed := make([]scm.Check, len(failedIdx))
+	for j, idx := range failedIdx {
+		failed[j] = checks[idx]
+	}
+	infra, err := detector.PreRunFailures(sctx.Ctx, failed)
+	if err != nil {
+		sctx.Log(fmt.Sprintf("warning: could not classify pre-run CI failures: %v", err))
+		return
+	}
+	if len(infra) != len(failed) {
+		sctx.Log(fmt.Sprintf("warning: pre-run CI classifier returned %d results for %d checks; ignoring", len(infra), len(failed)))
+		return
+	}
+	for j, idx := range failedIdx {
+		if infra[j] {
+			checks[idx].PreRunFailure = true
+			checks[idx].Bucket = scm.CheckBucketCancel
+		}
+	}
+}
+
+// ciUnresolvedCancelledOutcome parks the run for transient checks that will not
+// resolve on their own: either the run already spent their rerun budget and they
+// came back cancelled or failed during setup again, or no rerun is outstanding.
 //
 // A cancellation is never a verdict on the code, so there is nothing for the fix
 // agent to repair: routing it into the auto_fix.ci loop would spend an agent
 // round - and let that agent edit code the provider never tested - chasing an
 // outcome only the provider can clear. The findings are ask-user for the same
 // reason, so a fix loop cannot pick them up later either.
-for _, name := range names {
+//
+// checks preserves the provider-attributed cause through the shared cancel
+// bucket so the approval result does not describe a setup failure as a
+// cancellation. reruns reports how many reruns this run spent on each check.
+func ciUnresolvedCancelledOutcome(names []string, checks []scm.Check, reruns func(string) int) *pipeline.StepOutcome {
+	unresolved := unresolvedTransientChecks(names, checks)
+	preRunCount := 0
+	for _, check := range unresolved {
+		if check.PreRunFailure {
+			preRunCount++
+		}
+	}
+	findings := Findings{Summary: unresolvedTransientSummary(len(unresolved), preRunCount)}
+	for _, check := range unresolved {
 		findings.Items = append(findings.Items, Finding{
 			Severity:    "warning",
-			Description: unresolvedCancelledDescription(name, reruns(name)),
+			Description: unresolvedTransientDescription(check.Name, reruns(check.Name), check.PreRunFailure),
 			Action:      types.ActionAskUser,
 		})
 	}
@@ -599,6 +710,53 @@ for _, name := range names {
 		NeedsApproval: true,
 		Findings:      string(findingsJSON),
 	}
+}
+
+// unresolvedTransientChecks keeps the cause attached to each provider check.
+// Names identify the unresolved budget entries, but they are not unique check
+// identities: separate workflows can publish same-named checks with different
+// causes. A missing check has no current positional evidence, so it retains the
+// historical cancellation diagnosis.
+func unresolvedTransientChecks(names []string, checks []scm.Check) []scm.Check {
+	var unresolved []scm.Check
+	for _, name := range names {
+		matched := false
+		for _, check := range checks {
+			if check.Name != name || check.Bucket != scm.CheckBucketCancel {
+				continue
+			}
+			matched = true
+			unresolved = append(unresolved, check)
+		}
+		if !matched {
+			unresolved = append(unresolved, scm.Check{Name: name, Bucket: scm.CheckBucketCancel})
+		}
+	}
+	return unresolved
+}
+
+func unresolvedTransientSummary(total, preRun int) string {
+	switch {
+	case total > 0 && preRun == total:
+		return "CI checks failed before repository steps ran"
+	case preRun > 0:
+		return "CI checks ended without reporting a code verdict"
+	default:
+		return "CI checks were cancelled without reporting a verdict"
+	}
+}
+
+func unresolvedTransientDescription(name string, reruns int, preRunFailure bool) string {
+	if preRunFailure {
+		if reruns > 0 {
+			return fmt.Sprintf("CI check failed during setup again after its rerun: %s - repository steps never ran, so it needs a decision rather than a code fix", name)
+		}
+		return fmt.Sprintf("CI check failed during setup before repository steps ran: %s - no rerun is outstanding to replace that result, so it needs a decision rather than a code fix", name)
+	}
+	if reruns > 0 {
+		return fmt.Sprintf("CI check cancelled again after its rerun: %s - the provider cancelled it rather than reporting a job failure, so it needs a decision rather than a code fix", name)
+	}
+	return fmt.Sprintf("CI check cancelled without a verdict: %s - the provider cancelled it rather than reporting a job failure, and no rerun is outstanding to replace that result, so it needs a decision rather than a code fix", name)
 }
 
 func ciRerunHeadMismatchOutcome(expected, observed string) *pipeline.StepOutcome {
