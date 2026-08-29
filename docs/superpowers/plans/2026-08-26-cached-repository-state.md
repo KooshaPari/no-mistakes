@@ -4,7 +4,7 @@
 
 **Goal:** Make `no-mistakes status` always render cached, local-only repository branch evidence without adding a pipeline or network operation.
 
-**Architecture:** `internal/cli/status.go` already obtains `branchsync.State` through `InspectCached`. Add one small presenter for that state and render it unconditionally after repository discovery. Include the rendered cached summary in the existing status telemetry fingerprint so sampled status events correspond to visible state.
+**Architecture:** `internal/cli/status.go` already obtains `branchsync.State` through `InspectCached`. Add one small presenter for that state and render it unconditionally after repository discovery. Deliberately exclude the rendered cached summary from the existing status telemetry fingerprint so changes to local-only evidence do not increase sampled command telemetry.
 
 **Tech Stack:** Go, Cobra, existing `branchsync.Service`, existing CLI test helpers.
 
@@ -12,8 +12,8 @@
 
 ## File structure
 
-- Modify: `internal/cli/status.go` - render cached evidence and fingerprint it.
-- Create: `internal/cli/status_test.go` - table tests for the pure cached-state presenter and fingerprint coverage.
+- Modify: `internal/cli/status.go` - render cached evidence without fingerprinting it.
+- Create: `internal/cli/status_test.go` - table tests for the pure cached-state presenter and fingerprint stability.
 
 ### Task 1: Write the failing presenter test
 
@@ -76,7 +76,7 @@ Run: `go test ./internal/cli -run '^TestCachedBranchSummary$'`
 
 Expected: PASS.
 
-### Task 3: Keep telemetry aligned with rendered evidence
+### Task 3: Keep telemetry stable when cached evidence changes
 
 **Files:**
 
@@ -86,19 +86,19 @@ Expected: PASS.
 - [ ] **Step 1: Add a failing fingerprint regression test**
 
 ```go
-func TestStatusFingerprintIncludesCachedSummary(t *testing.T) {
+func TestStatusFingerprintIgnoresCachedSummary(t *testing.T) {
     run := &db.Run{ID: "run-1", Branch: "feature/test", Status: "running", HeadSHA: "head-one"}
     before := statusFingerprint("repo", "running", run, "cached: main 01234567 (clean; synchronized)")
     after := statusFingerprint("repo", "running", run, "cached: main 89abcdef (dirty; dirty)")
-    if before == after { t.Fatal("changing displayed cached evidence must change the status fingerprint") }
+    if before != after { t.Fatal("changing only cached local evidence must not change the command telemetry fingerprint") }
 }
 ```
 
 - [ ] **Step 2: Verify red**
 
-Run: `go test ./internal/cli -run '^TestStatusFingerprintIncludesCachedSummary$'`
+Run: `go test ./internal/cli -run '^TestStatusFingerprintIgnoresCachedSummary$'`
 
-Expected: compile failure until `statusFingerprint` accepts the cached summary.
+Expected: compile failure until `statusFingerprint` accepts the cached summary argument.
 
 - [ ] **Step 3: Update signature and call site**
 
@@ -106,9 +106,9 @@ Expected: compile failure until `statusFingerprint` accepts the cached summary.
 fingerprint := statusFingerprint(repo.ID, daemonState, activeRun, cachedSummary)
 ```
 
-Build the fingerprint from repository id, daemon state, cached summary, and
-the existing active-run fields. Update the existing active-run-head test with
-the fourth argument.
+Keep the fingerprint based on repository id, daemon state, and the existing
+active-run fields. Accept but deliberately ignore the cached summary argument,
+and update the existing active-run-head test with the fourth argument.
 
 - [ ] **Step 4: Verify focused tests**
 

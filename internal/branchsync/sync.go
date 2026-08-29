@@ -1469,43 +1469,49 @@ func (s *Service) recoverySourceState(ctx context.Context, state *State, run *db
 	if state == nil || run == nil || strings.TrimSpace(run.HeadSHA) == "" {
 		return recoverySourceUnavailable
 	}
-	localAnchor := custody.RecoveryRef(run.ID)
-	_, localAnchorExists, err := git.ExactRefTarget(ctx, s.workDir(), localAnchor)
-	if err != nil {
+	if !validLocalRecoveryAnchor(ctx, s.workDir(), run) {
 		return recoverySourceUnavailable
-	}
-	if localAnchorExists {
-		anchored, err := git.Run(ctx, s.workDir(), "rev-parse", localAnchor+"^{commit}")
-		if err != nil || anchored != run.HeadSHA {
-			return recoverySourceUnavailable
-		}
-	} else if target, err := git.Run(ctx, s.workDir(), "symbolic-ref", "-q", localAnchor); err == nil && target != "" {
-		return recoverySourceUnavailable
-	}
-	local := state.Local.Head
-	preserved := run.HeadSHA
-	localEligible := localRecoveryEligible(ctx, s.workDir(), state, run)
-	if localEligible {
-		localPreRecovery := custody.RecoveryLocalRef(run.ID)
-		if anchored, err := git.Run(ctx, s.workDir(), "rev-parse", "--verify", localPreRecovery+"^{commit}"); err == nil && anchored != preserved && local == preserved && !state.Local.Clean {
-			return recoverySourceUnavailable
-		}
 	}
 
+	localEligible := localRecoveryEligible(ctx, s.workDir(), state, run)
+	if !validLocalRecoveryState(ctx, s.workDir(), state, run, localEligible) {
+		return recoverySourceUnavailable
+	}
+	return s.gateRecoverySourceState(ctx, state, run, localEligible)
+}
+
+func validLocalRecoveryAnchor(ctx context.Context, workDir string, run *db.Run) bool {
+	localAnchor := custody.RecoveryRef(run.ID)
+	_, localAnchorExists, err := git.ExactRefTarget(ctx, workDir, localAnchor)
+	if err != nil {
+		return false
+	}
+	if localAnchorExists {
+		anchored, err := git.Run(ctx, workDir, "rev-parse", localAnchor+"^{commit}")
+		return err == nil && anchored == run.HeadSHA
+	}
+	target, err := git.Run(ctx, workDir, "symbolic-ref", "-q", localAnchor)
+	return err != nil || target == ""
+}
+
+func validLocalRecoveryState(ctx context.Context, workDir string, state *State, run *db.Run, localEligible bool) bool {
+	if !localEligible {
+		return true
+	}
+	localPreRecovery := custody.RecoveryLocalRef(run.ID)
+	anchored, err := git.Run(ctx, workDir, "rev-parse", "--verify", localPreRecovery+"^{commit}")
+	return err != nil || anchored == run.HeadSHA || state.Local.Head != run.HeadSHA || state.Local.Clean
+}
+
+func (s *Service) gateRecoverySourceState(ctx context.Context, state *State, run *db.Run, localEligible bool) recoverySourceState {
 	gateDir := strings.TrimSpace(s.GateDir)
 	if gateDir == "" {
-		if localEligible {
-			return recoverySourceAvailable
-		}
-		return recoverySourceUnavailable
+		return localRecoverySourceState(localEligible)
 	}
 	if _, err := os.Stat(gateDir); err != nil {
-		if localEligible {
-			return recoverySourceAvailable
-		}
-		return recoverySourceUnavailable
+		return localRecoverySourceState(localEligible)
 	}
-	compatible, err := recoveryAnchorCompatible(ctx, gateDir, run.ID, preserved)
+	compatible, err := recoveryAnchorCompatible(ctx, gateDir, run.ID, run.HeadSHA)
 	if err != nil || !compatible {
 		return recoverySourceUnavailable
 	}
@@ -1515,16 +1521,23 @@ func (s *Service) recoverySourceState(ctx context.Context, state *State, run *db
 	if !objectExists(ctx, gateDir, run.HeadSHA) {
 		return recoverySourceUnavailable
 	}
-	if !state.Local.Clean || !objectExists(ctx, gateDir, local) {
+	if !state.Local.Clean || !objectExists(ctx, gateDir, state.Local.Head) {
 		return recoverySourceUnavailable
 	}
-	if isAncestor(ctx, gateDir, local, preserved) {
+	if isAncestor(ctx, gateDir, state.Local.Head, run.HeadSHA) {
 		return recoverySourceAvailable
 	}
 	// Proving gate-only divergence uses merge-tree --write-tree, which creates
 	// a Git object. Cached inspection must not mutate either repository, so the
 	// explicit Recover operation owns this proof and any resulting write.
 	return recoverySourceExplicitVerification
+}
+
+func localRecoverySourceState(localEligible bool) recoverySourceState {
+	if localEligible {
+		return recoverySourceAvailable
+	}
+	return recoverySourceUnavailable
 }
 
 func localRecoveryEligible(ctx context.Context, wd string, state *State, run *db.Run) bool {

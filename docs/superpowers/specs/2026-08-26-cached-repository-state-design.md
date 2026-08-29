@@ -11,8 +11,9 @@ local branch evidence that an agent needs before starting work.
 `status` will call the existing `branchsync.Service.InspectCached` once and
 render a clearly labelled cached summary containing the local branch, a short
 HEAD, clean/dirty state, any local reason, and the existing human branch-sync
-summary. Its telemetry fingerprint will include that rendered evidence so a
-meaningful displayed state change is observable by the sampled read surface.
+summary. Its telemetry fingerprint will deliberately exclude that rendered
+evidence so changes to local-only evidence do not increase sampled command
+telemetry.
 
 ## Safety contract
 
@@ -39,7 +40,8 @@ output must say `cached`; it must not claim current remote freshness.
    branch evidence, including an explicit unavailable form when Git evidence is
    absent.
 2. A clean and a dirty local state render distinguishable, actionable text.
-3. A change to rendered cached state changes the status telemetry fingerprint.
+3. A change only to rendered cached state leaves the status telemetry
+   fingerprint unchanged.
 4. Existing status behaviour for repo identity, daemon, and active-run display
    remains intact.
 5. `gofmt -w .`, `make lint`, `go test -race ./...`, and
