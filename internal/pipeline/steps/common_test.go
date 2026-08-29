@@ -623,22 +623,8 @@ func TestCommitAgentFixes_PersistsUncertifiedRangeForReview(t *testing.T) {
 	}
 }
 
-func TestCommitAgentFixes_BypassesMissingLegacyHuskyRuntime(t *testing.T) {
-	t.Parallel()
-	dir, baseSHA, _ := setupGitRepo(t)
-
-	hooksDir := filepath.Join(dir, ".husky")
-	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte("#!/usr/bin/env sh\n. \"$(dirname -- \"$0\")/_/husky.sh\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	gitCmd(t, dir, "add", ".husky/pre-commit")
-	gitCmd(t, dir, "commit", "-m", "add legacy Husky hook")
-	headSHA := gitCmd(t, dir, "rev-parse", "HEAD")
-	gitCmd(t, dir, "config", "core.hooksPath", ".husky")
-
+func newAgentFixingTestContext(t *testing.T, dir, baseSHA, headSHA string) *pipeline.StepContext {
+	t.Helper()
 	ag := &mockAgent{
 		name: "test",
 		runFn: func(_ context.Context, opts agent.RunOpts) (*agent.Result, error) {
@@ -650,7 +636,32 @@ func TestCommitAgentFixes_BypassesMissingLegacyHuskyRuntime(t *testing.T) {
 	}
 	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
 	sctx.Fixing = true
+	return sctx
+}
 
+func setupLegacyHuskyHook(t *testing.T, hookName, commitMessage string) (dir, baseSHA, headSHA, hooksDir string) {
+	t.Helper()
+	dir, baseSHA, _ = setupGitRepo(t)
+	hooksDir = filepath.Join(dir, ".husky")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hookPath := filepath.Join(hooksDir, hookName)
+	if err := os.WriteFile(hookPath, []byte("#!/usr/bin/env sh\n. \"$(dirname -- \"$0\")/_/husky.sh\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitCmd(t, dir, "add", filepath.ToSlash(filepath.Join(".husky", hookName)))
+	gitCmd(t, dir, "commit", "-m", commitMessage)
+	headSHA = gitCmd(t, dir, "rev-parse", "HEAD")
+	gitCmd(t, dir, "config", "core.hooksPath", ".husky")
+	return dir, baseSHA, headSHA, hooksDir
+}
+
+func TestCommitAgentFixes_BypassesMissingLegacyHuskyRuntime(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA, hooksDir := setupLegacyHuskyHook(t, "pre-commit", "add legacy Husky hook")
+
+	sctx := newAgentFixingTestContext(t, dir, baseSHA, headSHA)
 	if _, err := executeFixMode(sctx, types.StepReview, fixExecutionOptions{FallbackSummary: "apply review fix"}); err != nil {
 		t.Fatal(err)
 	}
@@ -710,19 +721,7 @@ func TestCommitPipelineCorrection_ReportsCleanupFailureWithoutMaskingCommit(t *t
 
 func TestCommitAgentFixes_BypassesLegacyHuskyPrepareCommitMsgHook(t *testing.T) {
 	t.Parallel()
-	dir, baseSHA, _ := setupGitRepo(t)
-
-	hooksDir := filepath.Join(dir, ".husky")
-	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(hooksDir, "prepare-commit-msg"), []byte("#!/usr/bin/env sh\n. \"$(dirname -- \"$0\")/_/husky.sh\"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	gitCmd(t, dir, "add", ".husky/prepare-commit-msg")
-	gitCmd(t, dir, "commit", "-m", "add legacy Husky prepare-commit-msg hook")
-	headSHA := gitCmd(t, dir, "rev-parse", "HEAD")
-	gitCmd(t, dir, "config", "core.hooksPath", ".husky")
+	dir, baseSHA, headSHA, _ := setupLegacyHuskyHook(t, "prepare-commit-msg", "add legacy Husky prepare-commit-msg hook")
 
 	// Git runs prepare-commit-msg even with --no-verify, so this control pins
 	// that the flag alone cannot complete a correction commit here.
@@ -738,18 +737,7 @@ func TestCommitAgentFixes_BypassesLegacyHuskyPrepareCommitMsgHook(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	ag := &mockAgent{
-		name: "test",
-		runFn: func(_ context.Context, opts agent.RunOpts) (*agent.Result, error) {
-			if err := os.WriteFile(filepath.Join(opts.CWD, "agent-fix.txt"), []byte("fixed\n"), 0o644); err != nil {
-				return nil, err
-			}
-			return &agent.Result{Output: json.RawMessage(`{"summary":"apply review fix"}`)}, nil
-		},
-	}
-	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
-	sctx.Fixing = true
-
+	sctx := newAgentFixingTestContext(t, dir, baseSHA, headSHA)
 	if _, err := executeFixMode(sctx, types.StepReview, fixExecutionOptions{FallbackSummary: "apply review fix"}); err != nil {
 		t.Fatal(err)
 	}
@@ -845,49 +833,38 @@ func TestCommitAgentFixes_BypassesCompleteCommitHookFamilyOnlyForCorrection(t *t
 	}
 }
 
-func TestCommitAgentFixes_LintDoesNotPersistUncertifiedRange(t *testing.T) {
+func TestCommitAgentFixes_NonReviewStepsDoNotPersistUncertifiedRange(t *testing.T) {
 	t.Parallel()
-	dir, baseSHA, headSHA := setupGitRepo(t)
-	gitCmd(t, dir, "checkout", "--detach", headSHA)
 
-	ag := &mockAgent{name: "test"}
-	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
-	sctx.ReviewStartingHeadSHA = headSHA
-	if err := os.WriteFile(filepath.Join(dir, "lint-fix.txt"), []byte("fixed"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := commitAgentFixes(sctx, types.StepLint, "apply fix", "fallback"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := sctx.DB.GetUncertifiedPipelineRange(sctx.Repo.ID, sctx.Run.Branch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil {
-		t.Fatalf("lint persist = %#v, want no uncertified range", got)
-	}
-}
+	for _, tc := range []struct {
+		step     types.StepName
+		filename string
+	}{
+		{step: types.StepLint, filename: "lint-fix.txt"},
+		{step: types.StepDocument, filename: "docs-fix.txt"},
+	} {
+		t.Run(string(tc.step), func(t *testing.T) {
+			t.Parallel()
+			dir, baseSHA, headSHA := setupGitRepo(t)
+			gitCmd(t, dir, "checkout", "--detach", headSHA)
 
-func TestCommitAgentFixes_DocumentDoesNotPersistUncertifiedRange(t *testing.T) {
-	t.Parallel()
-	dir, baseSHA, headSHA := setupGitRepo(t)
-	gitCmd(t, dir, "checkout", "--detach", headSHA)
-
-	ag := &mockAgent{name: "test"}
-	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
-	sctx.ReviewStartingHeadSHA = headSHA
-	if err := os.WriteFile(filepath.Join(dir, "docs-fix.txt"), []byte("fixed"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := commitAgentFixes(sctx, types.StepDocument, "apply fix", "fallback"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := sctx.DB.GetUncertifiedPipelineRange(sctx.Repo.ID, sctx.Run.Branch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != nil {
-		t.Fatalf("document persist = %#v, want no uncertified range", got)
+			ag := &mockAgent{name: "test"}
+			sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+			sctx.ReviewStartingHeadSHA = headSHA
+			if err := os.WriteFile(filepath.Join(dir, tc.filename), []byte("fixed"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := commitAgentFixes(sctx, tc.step, "apply fix", "fallback"); err != nil {
+				t.Fatal(err)
+			}
+			got, err := sctx.DB.GetUncertifiedPipelineRange(sctx.Repo.ID, sctx.Run.Branch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != nil {
+				t.Fatalf("%s persist = %#v, want no uncertified range", tc.step, got)
+			}
+		})
 	}
 }
 
