@@ -229,6 +229,76 @@ func TestResolveRejectsProfileWhoseProviderConflictsWithRemote(t *testing.T) {
 	}
 }
 
+func TestResolveRejectsProgrammaticProfileWithoutProvider(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		host    string
+		profile config.ForgeProfile
+	}{
+		{name: "matching host with neither provider", host: "github.com"},
+		{name: "unmatched alias with neither provider", host: "unused-alias"},
+		{
+			name: "unmatched alias with both providers",
+			host: "unused-alias",
+			profile: config.ForgeProfile{
+				GHConfigDir:   t.TempDir(),
+				GLabConfigDir: t.TempDir(),
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Resolve(context.Background(), config.ForgeProfiles{
+				tt.host: tt.profile,
+			}, "https://github.com/acme/repo.git", "")
+			if err == nil {
+				t.Fatal("malformed profile was accepted")
+			}
+			if !strings.Contains(err.Error(), "exactly one of gh_config_dir or glab_config_dir") {
+				t.Fatalf("error = %v, want malformed-profile explanation", err)
+			}
+		})
+	}
+}
+
+func TestResolvePropagatesProfileConfigErrorsDuringHostMatching(t *testing.T) {
+	tests := []struct {
+		name       string
+		profile    config.ForgeProfile
+		wantDetail string
+	}{
+		{
+			name:       "unreadable GitHub config",
+			profile:    config.ForgeProfile{GHConfigDir: filepath.Join(t.TempDir(), "missing")},
+			wantDetail: "read GitHub hosts",
+		},
+		{
+			name: "unparseable GitLab config",
+			profile: func() config.ForgeProfile {
+				dir := t.TempDir()
+				if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("hosts: ["), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return config.ForgeProfile{GLabConfigDir: dir}
+			}(),
+			wantDetail: "parse GitLab config",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Resolve(context.Background(), config.ForgeProfiles{
+				"work-alias": tt.profile,
+			}, "https://code.example.test/acme/repo.git", "")
+			if err == nil {
+				t.Fatal("invalid profile config was swallowed during host matching")
+			}
+			if !strings.Contains(err.Error(), tt.wantDetail) {
+				t.Fatalf("error = %v, want detail %q", err, tt.wantDetail)
+			}
+		})
+	}
+}
+
 func TestResolveRejectsGitHubProfileWithMultipleAccounts(t *testing.T) {
 	dir := t.TempDir()
 	hosts := "github.com:\n    users:\n        personal:\n        work:\n    user: personal\n"

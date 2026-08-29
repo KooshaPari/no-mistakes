@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -260,7 +261,7 @@ func newPipelineAgent(ctx context.Context, cfg *config.Config, evidenceRoot stri
 		return agent.NewNoop(), nil
 	}
 	if err := cfg.ResolveAgent(ctx, lookPath); err != nil {
-		return nil, err
+		return nil, &pipelineAgentSetupError{stage: "resolve_agent", err: err}
 	}
 	agents := cfg.Agents
 	if len(agents) == 0 {
@@ -278,7 +279,7 @@ func newPipelineAgent(ctx context.Context, cfg *config.Config, evidenceRoot stri
 			for _, existing := range created {
 				_ = existing.Close()
 			}
-			return nil, fmt.Errorf("create agent %s: %w", name, err)
+			return nil, &pipelineAgentSetupError{stage: "create_agent", err: fmt.Errorf("create agent %s: %w", name, err)}
 		}
 		created = append(created, agent.WithSteering(next, evidenceRoot))
 	}
@@ -289,11 +290,19 @@ func newPipelineAgent(ctx context.Context, cfg *config.Config, evidenceRoot stri
 	if cfg.DisableProjectSettings {
 		if err := agent.EnsureGateNeutralized(ag); err != nil {
 			_ = ag.Close()
-			return nil, err
+			return nil, &pipelineAgentSetupError{stage: "gate_not_neutralized", err: err}
 		}
 	}
 	return ag, nil
 }
+
+type pipelineAgentSetupError struct {
+	stage string
+	err   error
+}
+
+func (e *pipelineAgentSetupError) Error() string { return e.err.Error() }
+func (e *pipelineAgentSetupError) Unwrap() error { return e.err }
 
 func forgeEnvironment(ctx *forgecontext.Context) runenv.Overlay {
 	if ctx == nil {
@@ -1047,51 +1056,18 @@ func (m *RunManager) startRunWithIntentSource(ctx context.Context, repo *db.Repo
 		return "", fmt.Errorf("resolve forge profile: %w", err)
 	}
 
-	// Create agent. In demo mode, skip resolution and use a no-op agent.
-	var ag agent.Agent
-	if steps.IsDemoMode() {
-		ag = agent.NewNoop()
-	} else {
-		if err := cfg.ResolveAgent(ctx, exec.LookPath); err != nil {
-			m.db.UpdateRunError(run.ID, err.Error())
-			trackStartFailure("resolve_agent")
-			return "", err
+	// Keep fresh and recovered runs on the same construction path so profile,
+	// steering, fallback cleanup, and gate-neutralization semantics cannot drift.
+	ag, err := newPipelineAgent(ctx, cfg, m.paths.EvidenceRoot(cfg.Test.Evidence.LocalRoot), exec.LookPath, forgeEnvironment(forgeCtx))
+	if err != nil {
+		m.db.UpdateRunError(run.ID, err.Error())
+		stage := "create_agent"
+		var setupErr *pipelineAgentSetupError
+		if errors.As(err, &setupErr) {
+			stage = setupErr.stage
 		}
-		agents := cfg.Agents
-		if len(agents) == 0 {
-			agents = []types.AgentName{cfg.Agent}
-		}
-		created := make([]agent.Agent, 0, len(agents))
-		for _, name := range agents {
-			next, agErr := agent.NewWithOptions(name, cfg.AgentPathFor(name), cfg.AgentArgsFor(name), agent.Options{
-				ACPRegistryOverrides:   cfg.ACPRegistryOverrides,
-				DisableProjectSettings: cfg.DisableProjectSettings,
-				Profile:                cfg.AgentProfileFor(name),
-				Environment:            forgeEnvironment(forgeCtx),
-			})
-			if agErr != nil {
-				m.db.UpdateRunError(run.ID, fmt.Sprintf("create agent %s: %s", name, agErr))
-				trackStartFailure("create_agent")
-				return "", fmt.Errorf("create agent %s: %w", name, agErr)
-			}
-			// Steer every pipeline agent to keep writes inside the worktree and
-			// avoid mutating system state (e.g. brew/Homebrew touching
-			// /Applications), which triggers macOS App Management prompts.
-			created = append(created, agent.WithSteering(next, m.paths.EvidenceRoot(cfg.Test.Evidence.LocalRoot)))
-		}
-		ag = agent.NewFallback(created)
-		// Fail closed ONLY under the trusted opt-out: when the repo asked to
-		// disable project settings, refuse any resolved harness that lacks a
-		// verified suppression knob rather than launch it with the target repo's
-		// project instructions loaded. When the repo did not opt out, every
-		// adapter runs exactly as before (backward-compat).
-		if cfg.DisableProjectSettings {
-			if err := agent.EnsureGateNeutralized(ag); err != nil {
-				m.db.UpdateRunError(run.ID, err.Error())
-				trackStartFailure("gate_not_neutralized")
-				return "", err
-			}
-		}
+		trackStartFailure(stage)
+		return "", err
 	}
 
 	execSteps := m.steps()
