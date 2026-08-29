@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	toon "github.com/toon-format/toon-go"
 
+	"github.com/kunchenguid/no-mistakes/internal/db"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
 
@@ -50,6 +51,36 @@ func axiStatusOutput(t *testing.T, runID string) string {
 		t.Fatalf("axi status: %v\n%s", err, out.String())
 	}
 	return out.String()
+}
+
+func insertRunningAxiStatusRun(t *testing.T, database *db.DB, repoID, branch, head string) *db.Run {
+	t.Helper()
+	run, err := database.InsertRun(repoID, branch, head, "base")
+	if err != nil {
+		t.Fatalf("insert %s run: %v", branch, err)
+	}
+	if err := database.UpdateRunStatus(run.ID, types.RunRunning); err != nil {
+		t.Fatalf("start %s run: %v", branch, err)
+	}
+	return run
+}
+
+func insertAwaitingReviewAxiStatusRun(t *testing.T, database *db.DB, repoID, branch, head, finding string) *db.Run {
+	t.Helper()
+	run := insertRunningAxiStatusRun(t, database, repoID, branch, head)
+	step, err := database.InsertStepResult(run.ID, types.StepReview)
+	if err != nil {
+		t.Fatalf("insert %s review step: %v", branch, err)
+	}
+	if err := database.UpdateStepStatus(step.ID, types.StepStatusAwaitingApproval); err != nil {
+		t.Fatalf("park %s review step: %v", branch, err)
+	}
+	if finding != "" {
+		if err := database.SetStepFindings(step.ID, findingsJSON(t, nil, finding)); err != nil {
+			t.Fatalf("set %s findings: %v", branch, err)
+		}
+	}
+	return run
 }
 
 // TestAxiStatusNeverReportsAnotherBranchesRunAsThisWorktrees is the regression
@@ -162,38 +193,8 @@ func TestAxiStatusForeignRunGateHelpCannotMutateCurrentBranch(t *testing.T) {
 	run(t, repoDir, "git", "checkout", "-b", "feature/mine")
 	chdir(t, repoDir)
 
-	mine, err := database.InsertRun(repo.ID, "feature/mine", "head-mine", "base")
-	if err != nil {
-		t.Fatalf("insert current-branch run: %v", err)
-	}
-	if err := database.UpdateRunStatus(mine.ID, types.RunRunning); err != nil {
-		t.Fatalf("start current-branch run: %v", err)
-	}
-	mineStep, err := database.InsertStepResult(mine.ID, types.StepReview)
-	if err != nil {
-		t.Fatalf("insert current-branch step: %v", err)
-	}
-	if err := database.UpdateStepStatus(mineStep.ID, types.StepStatusAwaitingApproval); err != nil {
-		t.Fatalf("park current-branch step: %v", err)
-	}
-
-	other, err := database.InsertRun(repo.ID, "feature/other", "head-other", "base")
-	if err != nil {
-		t.Fatalf("insert other-branch run: %v", err)
-	}
-	if err := database.UpdateRunStatus(other.ID, types.RunRunning); err != nil {
-		t.Fatalf("start other-branch run: %v", err)
-	}
-	otherStep, err := database.InsertStepResult(other.ID, types.StepReview)
-	if err != nil {
-		t.Fatalf("insert other-branch step: %v", err)
-	}
-	if err := database.UpdateStepStatus(otherStep.ID, types.StepStatusAwaitingApproval); err != nil {
-		t.Fatalf("park other-branch step: %v", err)
-	}
-	if err := database.SetStepFindings(otherStep.ID, findingsJSON(t, nil, "other branch gate")); err != nil {
-		t.Fatalf("set other-branch findings: %v", err)
-	}
+	insertAwaitingReviewAxiStatusRun(t, database, repo.ID, "feature/mine", "head-mine", "")
+	other := insertAwaitingReviewAxiStatusRun(t, database, repo.ID, "feature/other", "head-other", "other branch gate")
 
 	out := axiStatusOutput(t, other.ID)
 	for _, want := range []string{
@@ -218,31 +219,8 @@ func TestAxiStatusExplicitOlderSameBranchRunGateIsInspectionOnly(t *testing.T) {
 	run(t, repoDir, "git", "checkout", "-b", "feature/mine")
 	chdir(t, repoDir)
 
-	older, err := database.InsertRun(repo.ID, "feature/mine", "head-older", "base")
-	if err != nil {
-		t.Fatalf("insert older current-branch run: %v", err)
-	}
-	if err := database.UpdateRunStatus(older.ID, types.RunRunning); err != nil {
-		t.Fatalf("start older current-branch run: %v", err)
-	}
-	olderStep, err := database.InsertStepResult(older.ID, types.StepReview)
-	if err != nil {
-		t.Fatalf("insert older current-branch step: %v", err)
-	}
-	if err := database.UpdateStepStatus(olderStep.ID, types.StepStatusAwaitingApproval); err != nil {
-		t.Fatalf("park older current-branch step: %v", err)
-	}
-	if err := database.SetStepFindings(olderStep.ID, findingsJSON(t, nil, "older run gate")); err != nil {
-		t.Fatalf("set older current-branch findings: %v", err)
-	}
-
-	newer, err := database.InsertRun(repo.ID, "feature/mine", "head-newer", "base")
-	if err != nil {
-		t.Fatalf("insert newer current-branch run: %v", err)
-	}
-	if err := database.UpdateRunStatus(newer.ID, types.RunRunning); err != nil {
-		t.Fatalf("start newer current-branch run: %v", err)
-	}
+	older := insertAwaitingReviewAxiStatusRun(t, database, repo.ID, "feature/mine", "head-older", "older run gate")
+	newer := insertRunningAxiStatusRun(t, database, repo.ID, "feature/mine", "head-newer")
 
 	implicit := decodeStatusDoc(t, axiStatusOutput(t, ""))
 	if implicit.Run.ID != newer.ID {
@@ -280,38 +258,8 @@ func TestAxiStatusExplicitRunWithUnknownCallerBranchCannotOfferMutationCommands(
 	run(t, repoDir, "git", "checkout", "-b", "feature/mine")
 	chdir(t, repoDir)
 
-	mine, err := database.InsertRun(repo.ID, "feature/mine", "head-mine", "base")
-	if err != nil {
-		t.Fatalf("insert current-branch run: %v", err)
-	}
-	if err := database.UpdateRunStatus(mine.ID, types.RunRunning); err != nil {
-		t.Fatalf("start current-branch run: %v", err)
-	}
-	mineStep, err := database.InsertStepResult(mine.ID, types.StepReview)
-	if err != nil {
-		t.Fatalf("insert current-branch step: %v", err)
-	}
-	if err := database.UpdateStepStatus(mineStep.ID, types.StepStatusAwaitingApproval); err != nil {
-		t.Fatalf("park current-branch step: %v", err)
-	}
-
-	other, err := database.InsertRun(repo.ID, "feature/other", "head-other", "base")
-	if err != nil {
-		t.Fatalf("insert other-branch run: %v", err)
-	}
-	if err := database.UpdateRunStatus(other.ID, types.RunRunning); err != nil {
-		t.Fatalf("start other-branch run: %v", err)
-	}
-	otherStep, err := database.InsertStepResult(other.ID, types.StepReview)
-	if err != nil {
-		t.Fatalf("insert other-branch step: %v", err)
-	}
-	if err := database.UpdateStepStatus(otherStep.ID, types.StepStatusAwaitingApproval); err != nil {
-		t.Fatalf("park other-branch step: %v", err)
-	}
-	if err := database.SetStepFindings(otherStep.ID, findingsJSON(t, nil, "other branch gate")); err != nil {
-		t.Fatalf("set other-branch findings: %v", err)
-	}
+	insertAwaitingReviewAxiStatusRun(t, database, repo.ID, "feature/mine", "head-mine", "")
+	other := insertAwaitingReviewAxiStatusRun(t, database, repo.ID, "feature/other", "head-other", "other branch gate")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
