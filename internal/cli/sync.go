@@ -274,7 +274,7 @@ func printHumanSyncState(cmd *cobra.Command, state branchsync.State) {
 func humanSyncSummary(state branchsync.State) string {
 	switch state.State {
 	case branchsync.StatePipelineOwned:
-		if state.Safety == "blocked_pipeline_owned_recoverable" {
+		if state.Safety == "blocked_pipeline_owned_recoverable" || state.Safety == "blocked_recover_explicit_verification_required" {
 			return "run ended without publishing its pipeline commits; recover custody with `no-mistakes sync --recover` (or `no-mistakes rerun` to resume validation)"
 		}
 		return "pipeline fix is not pushed yet; do not make local follow-up commits"

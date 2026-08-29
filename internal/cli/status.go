@@ -61,7 +61,13 @@ func newStatusCmd() *cobra.Command {
 				if err != nil {
 					return "", "", fmt.Errorf("check active run: %w", err)
 				}
-				syncState := (&branchsync.Service{DB: d, Repo: repo, WorkDir: "."}).InspectCached(cmd.Context())
+				syncState := (&branchsync.Service{
+					DB:      d,
+					Repo:    repo,
+					WorkDir: ".",
+					GateDir: p.RepoDir(repo.ID),
+					Paths:   p,
+				}).InspectCached(cmd.Context())
 				cachedSummary := cachedBranchSummary(syncState)
 				fingerprint := statusFingerprint(repo.ID, daemonState, activeRun, cachedSummary)
 				fmt.Fprintf(w, "\n  %s  %s\n", sDim.Render("local state:"), cachedSummary)

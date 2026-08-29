@@ -1482,6 +1482,9 @@ func (s *Service) recoverySourceState(ctx context.Context, state *State, run *db
 
 func validLocalRecoveryAnchor(ctx context.Context, workDir string, run *db.Run) bool {
 	localAnchor := custody.RecoveryRef(run.ID)
+	if target, err := git.Run(ctx, workDir, "symbolic-ref", "-q", localAnchor); err == nil && target != "" {
+		return false
+	}
 	_, localAnchorExists, err := git.ExactRefTarget(ctx, workDir, localAnchor)
 	if err != nil {
 		return false
@@ -1490,8 +1493,7 @@ func validLocalRecoveryAnchor(ctx context.Context, workDir string, run *db.Run) 
 		anchored, err := git.Run(ctx, workDir, "rev-parse", localAnchor+"^{commit}")
 		return err == nil && anchored == run.HeadSHA
 	}
-	target, err := git.Run(ctx, workDir, "symbolic-ref", "-q", localAnchor)
-	return err != nil || target == ""
+	return true
 }
 
 func validLocalRecoveryState(ctx context.Context, workDir string, state *State, run *db.Run, localEligible bool) bool {

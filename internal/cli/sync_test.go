@@ -24,6 +24,17 @@ type cliSyncFixture struct {
 	local, remote, base, old, pushed, runID string
 }
 
+func TestHumanSyncSummaryIncludesExplicitRecoveryGuidance(t *testing.T) {
+	state := branchsync.State{
+		State:  branchsync.StatePipelineOwned,
+		Safety: "blocked_recover_explicit_verification_required",
+	}
+	got := humanSyncSummary(state)
+	if !strings.Contains(got, "recover custody") || !strings.Contains(got, "no-mistakes sync --recover") {
+		t.Fatalf("humanSyncSummary() = %q, want guarded recovery guidance", got)
+	}
+}
+
 func newCLISyncFixture(t *testing.T) cliSyncFixture {
 	t.Helper()
 	nmHome := filepath.Join(t.TempDir(), "nm-home")

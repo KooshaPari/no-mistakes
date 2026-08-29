@@ -673,6 +673,23 @@ func TestRecoverRejectsSymbolicGateAnchorWithoutOverwritingIt(t *testing.T) {
 	}
 }
 
+func TestInspectRejectsSymbolicLocalRecoveryAnchor(t *testing.T) {
+	t.Parallel()
+
+	f := newRecoverFixture(t, types.RunCancelled)
+	mustRun(t, f.local, "fetch", f.gate, f.preserved)
+	mustRun(t, f.local, "update-ref", "refs/heads/recovery-anchor-target", f.preserved)
+	mustRun(t, f.local, "symbolic-ref", f.anchorRef(), "refs/heads/recovery-anchor-target")
+
+	state := f.service.InspectCached(f.ctx)
+	if state.NextAction != nil && state.NextAction.Code == "recover_custody" {
+		t.Fatalf("inspect advertised recovery despite symbolic local evidence = %#v", state)
+	}
+	if got := mustRun(t, f.local, "symbolic-ref", f.anchorRef()); got != "refs/heads/recovery-anchor-target" {
+		t.Fatalf("symbolic local recovery anchor = %s, want refs/heads/recovery-anchor-target", got)
+	}
+}
+
 func TestRecoverKeepLocalAnchorsIndependentlyMovedGateHead(t *testing.T) {
 	t.Parallel()
 
