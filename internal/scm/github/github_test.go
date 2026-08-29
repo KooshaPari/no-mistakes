@@ -418,53 +418,55 @@ func TestGetChecksCollapseOrderingDoesNotLetWorkflowRunUnionResurrectSupersededC
 	}
 }
 
-func TestGetChecksPreservesIndependentSameNameWorkflows(t *testing.T) {
+func TestGetChecksPreservesDistinctSameNameSources(t *testing.T) {
 	t.Parallel()
 
-	host := githubCheckRollupHost(`[
+	cases := []struct {
+		name         string
+		checkRuns    string
+		workflowRuns string
+	}{
+		{
+			name: "independent same-name workflows",
+			checkRuns: `[
 				{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-08-26T08:39:44Z","completedAt":"2026-08-26T08:39:50Z","detailsUrl":"https://github.com/test/repo/actions/runs/102/job/202"}
-			]`, `[{"total_count":2,"workflow_runs":[
+			]`,
+			workflowRuns: `[{"total_count":2,"workflow_runs":[
 				{"id":102,"workflow_id":1002,"name":"build","status":"completed","conclusion":"success","run_started_at":"2026-08-26T08:39:44Z"},
 				{"id":103,"workflow_id":1003,"name":"build","status":"completed","conclusion":"failure","run_started_at":"2026-08-26T08:25:50Z"}
-			]}]`)
-
-	checks, err := host.GetChecks(context.Background(), &scm.PR{Number: "123", HeadSHA: "deadbeef"})
-	if err != nil {
-		t.Fatalf("GetChecks() error = %v", err)
-	}
-	requirePassingAndFailingChecks(t, checks, "independent same-name workflows")
-}
-
-func TestGetChecksPreservesSameNameJobsWithinOneWorkflowRun(t *testing.T) {
-	t.Parallel()
-
-	host := githubCheckRollupHost(`[
+			]}]`,
+		},
+		{
+			name: "same-name jobs from one workflow run",
+			checkRuns: `[
 				{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-08-26T08:25:50Z","completedAt":"2026-08-26T08:25:56Z","detailsUrl":"https://github.com/test/repo/actions/runs/102/job/201"},
 				{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-08-26T08:39:44Z","completedAt":"2026-08-26T08:39:50Z","detailsUrl":"https://github.com/test/repo/actions/runs/102/job/202"}
-			]`, `[{"total_count":1,"workflow_runs":[
+			]`,
+			workflowRuns: `[{"total_count":1,"workflow_runs":[
 				{"id":102,"workflow_id":1001,"name":"build","status":"completed","conclusion":"failure","run_started_at":"2026-08-26T08:25:50Z"}
-			]}]`)
-
-	checks, err := host.GetChecks(context.Background(), &scm.PR{Number: "123", HeadSHA: "deadbeef"})
-	if err != nil {
-		t.Fatalf("GetChecks() error = %v", err)
-	}
-	requirePassingAndFailingChecks(t, checks, "same-name jobs from one workflow run")
-}
-
-func TestGetChecksPreservesIndependentSameNameExternalCheckRuns(t *testing.T) {
-	t.Parallel()
-
-	host := githubCheckRollupHost(`[
+			]}]`,
+		},
+		{
+			name: "independent external checks",
+			checkRuns: `[
 				{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-08-26T08:25:50Z","completedAt":"2026-08-26T08:25:56Z","detailsUrl":"https://ci-one.example.com/build/42"},
 				{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-08-26T08:39:44Z","completedAt":"2026-08-26T08:39:50Z","detailsUrl":"https://ci-two.example.com/build/99"}
-			]`, `[{"total_count":0,"workflow_runs":[]}]`)
-
-	checks, err := host.GetChecks(context.Background(), &scm.PR{Number: "123", HeadSHA: "deadbeef"})
-	if err != nil {
-		t.Fatalf("GetChecks() error = %v", err)
+			]`,
+			workflowRuns: `[{"total_count":0,"workflow_runs":[]}]`,
+		},
 	}
-	requirePassingAndFailingChecks(t, checks, "independent external checks")
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			host := githubCheckRollupHost(tc.checkRuns, tc.workflowRuns)
+			checks, err := host.GetChecks(context.Background(), &scm.PR{Number: "123", HeadSHA: "deadbeef"})
+			if err != nil {
+				t.Fatalf("GetChecks() error = %v", err)
+			}
+			requirePassingAndFailingChecks(t, checks, tc.name)
+		})
+	}
 }
 
 func TestGetChecksCollapseComparesNewestRunWithEverySameNameCandidate(t *testing.T) {
