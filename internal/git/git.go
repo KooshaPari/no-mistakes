@@ -690,10 +690,7 @@ func ExactRefTarget(ctx context.Context, dir, ref string) (string, bool, error) 
 // `git rev-parse --verify --quiet` so a missing ref is a clean (nil, false)
 // result rather than a loud error.
 func RefExists(ctx context.Context, dir, ref string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", gitVerify, gitVerifyQuiet, ref+gitCommitObject)
-	cmd.Env = nonInteractiveEnvForContext(ctx, dir)
-	winproc.Harden(cmd)
-	if err := cmd.Run(); err != nil {
+	if _, err := Run(ctx, dir, "rev-parse", gitVerify, gitVerifyQuiet, ref+gitCommitObject); err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && ee.ExitCode() == 1 {
 			return false, nil
