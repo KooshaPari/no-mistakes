@@ -1,39 +1,50 @@
 package main
 
 import (
-	"os"
 	"slices"
 	"strings"
 	"testing"
 )
 
 func TestCIWorkflowRunsTestsOnAllSupportedDesktopPlatforms(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/ci.yml")
-	if err != nil {
-		t.Fatalf("read workflow: %v", err)
+	wf := loadCIWorkflowDoc(t)
+	testJob, ok := wf.Jobs["test"]
+	if !ok {
+		t.Fatal("CI workflow has no test job")
 	}
 
-	content := string(data)
+	platforms := make(map[string]bool)
+	for _, leg := range testJob.Strategy.Matrix.Include {
+		platforms[leg["os"]] = true
+	}
 	for _, osName := range []string{"ubuntu-latest", "macos-latest", "windows-latest"} {
-		if !strings.Contains(content, osName) {
+		if !platforms[osName] {
 			t.Fatalf("CI workflow must test %q", osName)
 		}
 	}
 }
 
 func TestCIWorkflowUsesRaceTestsOnUnixRunners(t *testing.T) {
-	data, err := os.ReadFile(".github/workflows/ci.yml")
-	if err != nil {
-		t.Fatalf("read workflow: %v", err)
+	wf := loadCIWorkflowDoc(t)
+	testJob, ok := wf.Jobs["test"]
+	if !ok {
+		t.Fatal("CI workflow has no test job")
 	}
 
-	content := string(data)
-	if !strings.Contains(content, "if: runner.os != 'Windows'") {
-		t.Fatalf("CI workflow must keep the Unix test branch so macOS runs the Unix suite")
+	for _, step := range testJob.Steps {
+		if unixOnly(step.If) && slices.Equal(strings.Fields(step.Run), []string{"go", "test", "-race", "./..."}) {
+			return
+		}
 	}
-	if !strings.Contains(content, "run: go test -race ./...") {
-		t.Fatalf("CI workflow must run the race-enabled suite on Unix runners")
-	}
+	t.Fatal("CI test job must run go test -race ./... on Unix runners")
+}
+
+func unixOnly(condition string) bool {
+	condition = strings.TrimSpace(condition)
+	condition = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(condition, "${{"), "}}"))
+	fields := strings.Fields(condition)
+	return len(fields) == 3 && fields[0] == "runner.os" && fields[1] == "!=" &&
+		(fields[2] == "'Windows'" || fields[2] == `"Windows"`)
 }
 
 func TestCIWorkflowEmitsStableProtectedCheckNames(t *testing.T) {
