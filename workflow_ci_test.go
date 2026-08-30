@@ -29,9 +29,34 @@ func TestCIWorkflowRunsTestsOnAllSupportedDesktopPlatforms(t *testing.T) {
 
 func workflowExpression(value string) string {
 	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "${{") || !strings.HasSuffix(value, "}}") {
+		return ""
+	}
 	value = strings.TrimPrefix(value, "${{")
 	value = strings.TrimSuffix(value, "}}")
 	return strings.TrimSpace(value)
+}
+
+func TestWorkflowExpressionRequiresCompleteDelimiters(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "complete", value: "${{ matrix.os }}", want: "matrix.os"},
+		{name: "complete with surrounding whitespace", value: "  ${{ matrix.os }}  ", want: "matrix.os"},
+		{name: "bare", value: "matrix.os", want: ""},
+		{name: "missing opening delimiter", value: "matrix.os }}", want: ""},
+		{name: "missing closing delimiter", value: "${{ matrix.os", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := workflowExpression(tt.value); got != tt.want {
+				t.Fatalf("workflowExpression(%q) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestCIWorkflowUsesRaceTestsOnUnixRunners(t *testing.T) {
