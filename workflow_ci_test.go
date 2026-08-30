@@ -12,6 +12,9 @@ func TestCIWorkflowRunsTestsOnAllSupportedDesktopPlatforms(t *testing.T) {
 	if !ok {
 		t.Fatal("CI workflow has no test job")
 	}
+	if got, want := workflowExpression(wfScalar(testJob.RunsOn)), "matrix.os"; got != want {
+		t.Fatalf("CI test job runner expression = %q, want %q", got, want)
+	}
 
 	platforms := make(map[string]bool)
 	for _, leg := range testJob.Strategy.Matrix.Include {
@@ -22,6 +25,13 @@ func TestCIWorkflowRunsTestsOnAllSupportedDesktopPlatforms(t *testing.T) {
 			t.Fatalf("CI workflow must test %q", osName)
 		}
 	}
+}
+
+func workflowExpression(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "${{")
+	value = strings.TrimSuffix(value, "}}")
+	return strings.TrimSpace(value)
 }
 
 func TestCIWorkflowUsesRaceTestsOnUnixRunners(t *testing.T) {
