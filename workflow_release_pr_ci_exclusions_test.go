@@ -10,14 +10,27 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestPullRequestWorkflowsExcludeReleasePleaseOutputs is the drift check for
-// the release-please zero-run path filter. release-please opens its PR with
-// GITHUB_TOKEN, which creates pull_request runs that sit in action_required
-// forever; the only native way to create zero runs is to exclude every path
-// release-please writes from each pull_request trigger. This test derives the
-// expected output set from release-please-config.json so adding an extra-files
-// entry (or changing release-type) without updating the workflows fails CI.
-func TestPullRequestWorkflowsExcludeReleasePleaseOutputs(t *testing.T) {
+// TestRequiredCIWorkflowRunsForReleasePleaseOutputs prevents a protected-check
+// deadlock: ci / lint and ci / test are required on main, so their workflow
+// must create a run even when a PR changes only release-please output files.
+func TestRequiredCIWorkflowRunsForReleasePleaseOutputs(t *testing.T) {
+	expected := expectedReleasePleaseOutputs(t)
+	pr, ok := loadWorkflowPullRequest(t, ".github/workflows/ci.yml")
+	if !ok {
+		t.Fatal("CI workflow has no pull_request trigger")
+	}
+	for _, output := range expected {
+		if pullRequestExcludesPath(pr, output) {
+			t.Errorf("CI pull_request must run for release-please output %q because it emits protected checks", output)
+		}
+	}
+}
+
+// TestNonRequiredPullRequestWorkflowsExcludeReleasePleaseOutputs retains the
+// zero-run filter for workflows that do not emit protected contexts. Those
+// runs otherwise remain action_required when release-please opens its PR with
+// GITHUB_TOKEN. The required CI workflow is intentionally tested separately.
+func TestNonRequiredPullRequestWorkflowsExcludeReleasePleaseOutputs(t *testing.T) {
 	expected := expectedReleasePleaseOutputs(t)
 	if len(expected) == 0 {
 		t.Fatal("expected release-please output set is empty")
@@ -38,6 +51,9 @@ func TestPullRequestWorkflowsExcludeReleasePleaseOutputs(t *testing.T) {
 			continue
 		}
 		path := filepath.Join(".github/workflows", name)
+		if path == filepath.Join(".github", "workflows", "ci.yml") {
+			continue
+		}
 		pr, ok := loadWorkflowPullRequest(t, path)
 		if !ok {
 			continue
