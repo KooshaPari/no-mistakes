@@ -4,12 +4,11 @@ on:
   pull_request:
     branches:
       - main
-    # Never create a run for a release-please PR. GITHUB_TOKEN-opened PRs land in
-    # action_required and never start; excluding the exact release-output set means
-    # no run is created at all. push/tag/release triggers are unaffected.
-    paths-ignore:
-      - .release-please-manifest.json
-      - CHANGELOG.md
+    # This workflow emits the protected ci / lint and ci / test contexts, so it
+    # must not use path filters: GitHub leaves skipped required workflows pending
+    # and blocks release-only PRs. A release-please PR opened with GITHUB_TOKEN
+    # may need approval before workflows start; a manually recovered PR must also
+    # receive these same required checks.
 
 jobs:
   check:

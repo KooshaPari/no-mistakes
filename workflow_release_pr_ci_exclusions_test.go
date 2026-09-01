@@ -10,25 +10,54 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// TestPullRequestWorkflowsExcludeReleasePleaseOutputs is the drift check for
-// the release-please zero-run path filter. release-please opens its PR with
-// GITHUB_TOKEN, which creates pull_request runs that sit in action_required
-// forever; the only native way to create zero runs is to exclude every path
-// release-please writes from each pull_request trigger. This test derives the
-// expected output set from release-please-config.json so adding an extra-files
-// entry (or changing release-type) without updating the workflows fails CI.
-func TestPullRequestWorkflowsExcludeReleasePleaseOutputs(t *testing.T) {
+// TestRequiredCIWorkflowRunsForReleasePleaseOutputs prevents a protected-check
+// deadlock: ci / lint and ci / test are required on main, so their workflow
+// must create a run even when a PR changes only release-please output files.
+func TestRequiredCIWorkflowRunsForReleasePleaseOutputs(t *testing.T) {
+	expected := expectedReleasePleaseOutputs(t)
+	pr, ok := loadWorkflowPullRequest(t, ".github/workflows/ci.yml")
+	if !ok {
+		t.Fatal("CI workflow has no pull_request trigger")
+	}
+	for _, output := range expected {
+		if pullRequestExcludesPath(pr, output) {
+			t.Errorf("CI pull_request must run for release-please output %q because it emits protected checks", output)
+		}
+	}
+}
+
+// TestNonRequiredPullRequestWorkflowsExcludeReleasePleaseOutputs retains the
+// zero-run filter for workflows that do not emit protected contexts. Those
+// runs otherwise remain action_required when release-please opens its PR with
+// GITHUB_TOKEN. The required CI workflow is intentionally tested separately.
+func TestNonRequiredPullRequestWorkflowsExcludeReleasePleaseOutputs(t *testing.T) {
 	expected := expectedReleasePleaseOutputs(t)
 	if len(expected) == 0 {
 		t.Fatal("expected release-please output set is empty")
 	}
+	workflows := nonRequiredPullRequestWorkflows(t)
+	for _, workflow := range workflows {
+		for _, output := range expected {
+			if !pullRequestExcludesPath(workflow.trigger, output) {
+				t.Errorf("%s pull_request must exclude release-please output %q (via paths-ignore, a trailing negated paths entry, or by omitting it from a paths allow-list)", workflow.path, output)
+			}
+		}
+	}
+}
 
+type pullRequestWorkflow struct {
+	path    string
+	trigger map[string]any
+}
+
+func nonRequiredPullRequestWorkflows(t *testing.T) []pullRequestWorkflow {
+	t.Helper()
 	entries, err := os.ReadDir(".github/workflows")
 	if err != nil {
 		t.Fatalf("read workflows: %v", err)
 	}
 
-	checked := 0
+	var workflows []pullRequestWorkflow
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -38,20 +67,19 @@ func TestPullRequestWorkflowsExcludeReleasePleaseOutputs(t *testing.T) {
 			continue
 		}
 		path := filepath.Join(".github/workflows", name)
+		if path == filepath.Join(".github", "workflows", "ci.yml") {
+			continue
+		}
 		pr, ok := loadWorkflowPullRequest(t, path)
 		if !ok {
 			continue
 		}
-		checked++
-		for _, output := range expected {
-			if !pullRequestExcludesPath(pr, output) {
-				t.Errorf("%s pull_request must exclude release-please output %q (via paths-ignore, a trailing negated paths entry, or by omitting it from a paths allow-list)", path, output)
-			}
-		}
+		workflows = append(workflows, pullRequestWorkflow{path: path, trigger: pr})
 	}
-	if checked == 0 {
+	if len(workflows) == 0 {
 		t.Fatal("no pull_request workflows found to check")
 	}
+	return workflows
 }
 
 // expectedReleasePleaseOutputs derives the file set release-please writes for
