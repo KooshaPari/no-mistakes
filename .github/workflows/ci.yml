@@ -6,8 +6,9 @@ on:
       - main
     # This workflow emits the protected ci / lint and ci / test contexts, so it
     # must not use path filters: GitHub leaves skipped required workflows pending
-    # and blocks release-only PRs. release-please PRs are opened or recovered by
-    # a trusted actor so their required checks can run normally.
+    # and blocks release-only PRs. A release-please PR opened with GITHUB_TOKEN
+    # may need approval before workflows start; a manually recovered PR must also
+    # receive these same required checks.
 
 jobs:
   check:

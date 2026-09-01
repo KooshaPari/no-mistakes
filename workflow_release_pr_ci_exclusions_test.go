@@ -35,13 +35,29 @@ func TestNonRequiredPullRequestWorkflowsExcludeReleasePleaseOutputs(t *testing.T
 	if len(expected) == 0 {
 		t.Fatal("expected release-please output set is empty")
 	}
+	workflows := nonRequiredPullRequestWorkflows(t)
+	for _, workflow := range workflows {
+		for _, output := range expected {
+			if !pullRequestExcludesPath(workflow.trigger, output) {
+				t.Errorf("%s pull_request must exclude release-please output %q (via paths-ignore, a trailing negated paths entry, or by omitting it from a paths allow-list)", workflow.path, output)
+			}
+		}
+	}
+}
 
+type pullRequestWorkflow struct {
+	path    string
+	trigger map[string]any
+}
+
+func nonRequiredPullRequestWorkflows(t *testing.T) []pullRequestWorkflow {
+	t.Helper()
 	entries, err := os.ReadDir(".github/workflows")
 	if err != nil {
 		t.Fatalf("read workflows: %v", err)
 	}
 
-	checked := 0
+	var workflows []pullRequestWorkflow
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -58,16 +74,12 @@ func TestNonRequiredPullRequestWorkflowsExcludeReleasePleaseOutputs(t *testing.T
 		if !ok {
 			continue
 		}
-		checked++
-		for _, output := range expected {
-			if !pullRequestExcludesPath(pr, output) {
-				t.Errorf("%s pull_request must exclude release-please output %q (via paths-ignore, a trailing negated paths entry, or by omitting it from a paths allow-list)", path, output)
-			}
-		}
+		workflows = append(workflows, pullRequestWorkflow{path: path, trigger: pr})
 	}
-	if checked == 0 {
+	if len(workflows) == 0 {
 		t.Fatal("no pull_request workflows found to check")
 	}
+	return workflows
 }
 
 // expectedReleasePleaseOutputs derives the file set release-please writes for
