@@ -34,7 +34,7 @@ merge-tree`.
 | `a445c18` | Infisical workflow | Reject as unsafe | The workflow installs through an unpinned network script, exports secrets into a process environment, and uploads `.env` on failure. |
 | `3ac4741` | Mergify rules | Reject as invalid/stale | It requests nonexistent `phenotype/core`, uses obsolete merge-message fields, assumes check names not provided by the current repository, and automatically closes stale work. |
 | `ecb1479` | Generic Trunk configuration | Reject as mismatched | It enables Rust, Python, Node, Docker, and other linters for a Go repository without corresponding project configuration. |
-| `1055270` | CircleCI matrix | Reject as mismatched | It installs and runs Rust, Python, and Node pipelines that are not part of this repository and contains permissive `|| true` gates. |
+| `1055270` | CircleCI matrix | Reject as mismatched | It installs and runs Rust, Python, and Node pipelines that are not part of this repository and contains permissive \|\| true gates. |
 | `4b723aa` | OpenSSF Scorecard workflow | Replace separately if desired | The preserved version contains an invalid job-level `security` key and stale action pins; supply-chain scoring should be reintroduced as a current, independently validated change. |
 | `ba63e17`, `59aa0b8` | Trunk/Prettier workflow | Superseded | Fork PR #2 already documents why the original Trunk action was broken. The replacement is a generic Prettier-only policy, not a Go correctness gate, and should not be required by this reconciliation. |
 | `e26ace7` | Renovate template | Reject as mismatched | It contains Rust, Python, Node, and Docker package rules absent from this repository and grants broad dependency auto-merge behavior without current governance review. |
