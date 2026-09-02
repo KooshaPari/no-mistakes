@@ -1,81 +1,37 @@
 name: CI
 
 on:
-  push:
-    branches: [main, master, develop]
   pull_request:
-    branches: [main, master, develop]
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches:
+      - main
+    # Never create a run for a release-please PR. GITHUB_TOKEN-opened PRs land in
+    # action_required and never start; excluding the exact release-output set means
+    # no run is created at all. push/tag/release triggers are unaffected.
+    paths-ignore:
+      - .release-please-manifest.json
+      - CHANGELOG.md
 
 jobs:
-  detect:
-    name: Detect Languages
+  check:
     runs-on: ubuntu-latest
-    outputs:
-      has_rust: ${{ steps.detect.outputs.has_rust }}
-      has_deny: ${{ steps.detect.outputs.has_deny }}
-      has_python: ${{ steps.detect.outputs.has_python }}
-      has_go: ${{ steps.detect.outputs.has_go }}
-      has_typescript: ${{ steps.detect.outputs.has_typescript }}
-      has_security: ${{ steps.detect.outputs.has_security }}
-      has_trunk: ${{ steps.detect.outputs.has_trunk }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
         with:
-          fetch-depth: 1
+          go-version-file: go.mod
 
-      - id: detect
+      - name: Format check
         run: |
-          set +e
-          # Initialize all outputs to false (critical: every output must be set)
-          echo "has_rust=false" >> $GITHUB_OUTPUT
-          echo "has_deny=false" >> $GITHUB_OUTPUT
-          echo "has_python=false" >> $GITHUB_OUTPUT
-          echo "has_go=false" >> $GITHUB_OUTPUT
-          echo "has_typescript=false" >> $GITHUB_OUTPUT
-          echo "has_security=false" >> $GITHUB_OUTPUT
-          echo "has_trunk=false" >> $GITHUB_OUTPUT
-
-          # Rust: needs Cargo.toml AND deny.toml
-          if [ -f "Cargo.toml" ] || [ -f "**/Cargo.toml" ]; then
-            echo "has_rust=true" >> $GITHUB_OUTPUT
-            if [ -f "deny.toml" ]; then
-              echo "has_deny=true" >> $GITHUB_OUTPUT
-            fi
+          output=$(gofmt -l .)
+          if [ -n "$output" ]; then
+            echo "Files not formatted:"
+            echo "$output"
+            exit 1
           fi
 
-          # Python: needs pyproject.toml, setup.py, requirements.txt, or *.py
-          if [ -f "pyproject.toml" ] || [ -f "setup.py" ] || [ -f "requirements.txt" ] || find . -maxdepth 3 -name "*.py" -type f 2>/dev/null | head -1 | grep -q .; then
-            echo "has_python=true" >> $GITHUB_OUTPUT
-          fi
-
-          # Go: needs go.mod
-          if [ -f "go.mod" ]; then
-            echo "has_go=true" >> $GITHUB_OUTPUT
-          fi
-
-          # TypeScript / JS: needs package.json (with type=module or tsconfig or js files)
-          if [ -f "package.json" ]; then
-            echo "has_typescript=true" >> $GITHUB_OUTPUT
-          fi
-
-          # Security: always run (bandit/gitleaks/dependency-review)
-          echo "has_security=true" >> $GITHUB_OUTPUT
-
-          # Trunk: only if trunk.yaml exists
-          if [ -f "trunk.yaml" ]; then
-            echo "has_trunk=true" >> $GITHUB_OUTPUT
-          fi
-
-          echo ""
-          echo "=== Detected ==="
-          echo "rust=${{ steps.detect.outputs.has_rust }} deny=${{ steps.detect.outputs.has_deny }} python=${{ steps.detect.outputs.has_python }} go=${{ steps.detect.outputs.has_go }} typescript=${{ steps.detect.outputs.has_typescript }} security=${{ steps.detect.outputs.has_security }} trunk=${{ steps.detect.outputs.has_trunk }}"
+      - name: Vet
+        run: go vet ./...
 
   test:
     name: ${{ matrix.name }}
@@ -105,32 +61,11 @@ jobs:
     # it, and it still keeps a wedged runner well short of the six-hour default.
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: cargo fmt --check
-        run: |
-          cargo fmt --all -- --check 2>&1 || echo "::warning::cargo fmt issues (advisory)"
-      - name: cargo clippy
-        run: |
-          cargo clippy --all-targets -- -D warnings 2>&1 || echo "::warning::clippy issues (advisory)"
-      - name: cargo test
-        run: |
-          cargo test --workspace --no-fail-fast 2>&1 || echo "::warning::test failures (advisory)"
+      - uses: actions/checkout@v6
 
-  cargo-deny:
-    name: Cargo Deny (Advisories + Licenses)
-    needs: detect
-    if: needs.detect.outputs.has_deny == 'true'
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: cargo-deny check
-        uses: EmbarkStudios/cargo-deny-action@v1
+      - uses: actions/setup-go@v6
         with:
-          arguments: --all-features
+          go-version-file: go.mod
 
       # The Windows suite is process-spawn bound, not compute bound: the
       # git-backed packages run thousands of git.exe invocations, and Defender
@@ -165,148 +100,39 @@ jobs:
         if: runner.os != 'Windows'
         run: go test -race ./...
 
-  python:
-    name: Python
-    needs: detect
-    if: needs.detect.outputs.has_python == 'true'
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install ruff
-        run: pip install ruff
-      - name: ruff check
-        run: ruff check . 2>&1 || echo "::warning::ruff issues (advisory)"
-      - name: ruff format --check
-        run: ruff format --check . 2>&1 || echo "::warning::format issues (advisory)"
       # Git-heavy packages are the Windows wall floor. Keep this list in lockstep
       # with NM_CI_WINDOWS_GIT_EXCLUDE on the core shard; the workflow tests
       # resolve both through `go list` and fail if they drift.
       - name: Test on Windows (git-heavy)
         if: runner.os == 'Windows' && matrix.shard == 'git'
-        run: go test -v -timeout=15m ./internal/git ./internal/branchsync ./internal/gate ./internal/evidence ./internal/pipeline/steps ./internal/daemon ./internal/eval
+        run: go test -v -timeout=15m ./internal/git ./internal/branchsync ./internal/gate ./internal/evidence ./internal/pipeline/steps/... ./internal/daemon ./internal/eval
+
       - name: Test on Windows (core)
         if: runner.os == 'Windows' && matrix.shard == 'core'
         shell: pwsh
         env:
-          NM_CI_WINDOWS_GIT_EXCLUDE: '/internal/(git|branchsync|gate|evidence|pipeline/steps|daemon|eval)$'
+          NM_CI_WINDOWS_GIT_EXCLUDE: '/internal/(git|branchsync|gate|evidence|pipeline/steps(/.*)?|daemon|eval)$'
         run: |
           $pkgs = go list ./... | Where-Object { $_ -notmatch $env:NM_CI_WINDOWS_GIT_EXCLUDE }
           go test -v -timeout=15m @pkgs
 
-  go:
-    name: Go
-    needs: detect
-    if: needs.detect.outputs.has_go == 'true'
+      - name: Build
+        run: go build ./cmd/no-mistakes
+
+  e2e:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
         with:
-          go-version: '1.22'
-      - name: gofmt check
-        run: gofmt -l . 2>&1 || echo "::warning::gofmt issues (advisory)"
-      - name: go vet
-        run: go vet ./... 2>&1 || echo "::warning::go vet issues (advisory)"
-      - name: go test
-        run: go test ./... 2>&1 || echo "::warning::test failures (advisory)"
+          go-version-file: go.mod
 
-  typescript:
-    name: TS/JS
-    needs: detect
-    if: needs.detect.outputs.has_typescript == 'true'
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-      - run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund
-      - name: lint
-        run: |
-          if [ -f package.json ] && grep -q '"lint"' package.json; then
-            npm run lint 2>&1 || echo "::warning::lint issues (advisory)"
-          fi
-      - name: test
-        run: |
-          if [ -f package.json ] && grep -q '"test"' package.json; then
-            npm test 2>&1 || echo "::warning::test failures (advisory)"
-          fi
-
-  security:
-    name: Security Scan
-    needs: detect
-    if: needs.detect.outputs.has_security == 'true'
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  dep-review:
-    name: Dependency Review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/dependency-review-action@v4
-        with:
-          fail-on-severity: low
-
-  lint:
-    name: ci / lint
-    if: always()
-    needs: [detect, rust, cargo-deny, python, go, typescript, security, dep-review]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Aggregate lint gate
-        run: |
-          failed=0
-          for pair in \
-            "rust:${{ needs.rust.result }}" \
-            "cargo-deny:${{ needs.cargo-deny.result }}" \
-            "python:${{ needs.python.result }}" \
-            "go:${{ needs.go.result }}" \
-            "typescript:${{ needs.typescript.result }}" \
-            "security:${{ needs.security.result }}" \
-            "dep-review:${{ needs.dependency-review.result }}" \
-            ; do
-            name="${pair%%:*}"
-            result="${pair#*:}"
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
-              echo "  ✗ $name: $result"
-              failed=$((failed + 1))
-            elif [ "$result" = "success" ] || [ "$result" = "skipped" ]; then
-              echo "  ✓ $name: $result"
-            else
-              echo "  ? $name: $result"
-            fi
-          done
-          if [ "$failed" -gt 0 ]; then
-            echo ""
-            echo "❌ $failed lint check(s) failed"
-            exit 1
-          fi
-          echo ""
-          echo "✅ All lint checks passed (or were skipped)"
-
-  test:
-    name: ci / test
-    if: always()
-    needs: [lint]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Test gate
-        run: |
-          # Test gate is currently combined with lint
-          echo "✅ All test stages passed (gated via ci / lint)"
+      # The e2e suite drives the real no-mistakes binary against a fake
+      # agent through `git push -> daemon -> pipeline -> push to upstream`
+      # for claude, codex, grok, and opencode. It builds the binary itself, so
+      # no separate build step is needed. Linux-only for now: opencode's
+      # ephemeral HTTP server picks up unused ports via :0, which is
+      # fine on Linux runners but flakes on Windows agent harnesses.
+      - name: End-to-end suite
+        run: make e2e
