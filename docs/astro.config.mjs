@@ -55,7 +55,20 @@ export default defineConfig({
             { label: "Environment Variables", slug: "reference/environment" },
           ],
         },
-      ],
-    }),
-  ],
-});
+
+        {
+          label: "Operations",
+          items: [
+            { label: "Overview", slug: "operations/" },
+            { label: "Runbook", slug: "operations/runbook" },
+            { label: "Incident Response", slug: "operations/incident-response" },
+          ],
+        },
+        {
+          label: "Demo",
+          items: [
+            { label: "Overview", slug: "demo/" },
+            { label: "On-device", slug: "demo/on-device" },
+          ],
+        },
+      ]
