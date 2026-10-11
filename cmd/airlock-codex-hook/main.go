@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -103,18 +105,22 @@ func socketPath() string {
 	return filepath.Join(os.Getenv("HOME"), ".airlock", "codex-hook.sock")
 }
 
-func notify(path string, payload []byte) {
-	defer func() { _ = recover() }()
+func notify(path string, payload []byte) error {
 	if path == "" || len(payload) == 0 {
-		return
+		return errors.New("observer socket path and payload are required")
 	}
 	conn, err := net.DialTimeout("unix", path, rpcTimeout)
 	if err != nil {
-		return
+		return fmt.Errorf("connect to observer socket: %w", err)
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(rpcTimeout))
-	_ = writeAll(conn, append(append([]byte(nil), payload...), '\n'))
+	if err := conn.SetDeadline(time.Now().Add(rpcTimeout)); err != nil {
+		return fmt.Errorf("set observer socket deadline: %w", err)
+	}
+	if err := writeAll(conn, append(append([]byte(nil), payload...), '\n')); err != nil {
+		return fmt.Errorf("write observer event: %w", err)
+	}
+	return nil
 }
 
 func writeAll(w io.Writer, data []byte) error {
@@ -131,11 +137,10 @@ func writeAll(w io.Writer, data []byte) error {
 	return nil
 }
 
-func run(input io.Reader, path string) {
-	defer func() { _ = recover() }()
+func run(input io.Reader, path string) error {
 	data, err := io.ReadAll(io.LimitReader(input, maxEventBytes+1))
 	if err != nil || len(data) == 0 || len(data) > maxEventBytes {
-		return
+		return nil
 	}
 	var inputEvent struct {
 		HookEventName string `json:"hook_event_name"`
@@ -143,17 +148,22 @@ func run(input io.Reader, path string) {
 		CWD           string `json:"cwd"`
 	}
 	if json.Unmarshal(data, &inputEvent) != nil || inputEvent.HookEventName != "PostToolUse" {
-		return
+		return nil
 	}
 	repo, branch, dirtyCount, ok := repoMetadata(inputEvent.CWD)
 	if !ok {
-		return
+		return nil
 	}
 	metadata, err := json.Marshal(event{"codex", inputEvent.ToolName, repo, branch, dirtyCount, time.Now().UTC().Format(time.RFC3339Nano)})
 	if err != nil {
-		return
+		return fmt.Errorf("encode observer event: %w", err)
 	}
-	notify(path, metadata)
+	return notify(path, metadata)
 }
 
-func main() { run(os.Stdin, socketPath()) }
+func main() {
+	if err := run(os.Stdin, socketPath()); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}

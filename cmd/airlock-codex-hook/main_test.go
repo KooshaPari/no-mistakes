@@ -35,7 +35,9 @@ func TestRunForwardsOnlyMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run(bytes.NewReader(input), path)
+	if err := run(bytes.NewReader(input), path); err != nil {
+		t.Fatalf("run() = %v", err)
+	}
 	select {
 	case payload := <-got:
 		var got event
@@ -133,7 +135,9 @@ func runGit(t *testing.T, cwd string, args ...string) {
 func TestRunSkipsMissingOrInvalidCWD(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "absent.sock")
 	for _, input := range []string{`{"hook_event_name":"PostToolUse","tool_name":"Bash"}`, `{"hook_event_name":"PostToolUse","tool_name":"Bash","cwd":"relative"}`} {
-		run(bytes.NewBufferString(input), path)
+		if err := run(bytes.NewBufferString(input), path); err != nil {
+			t.Fatalf("run(%q) = %v", input, err)
+		}
 	}
 }
 
@@ -154,7 +158,9 @@ func TestRunRejectsOversizedPayload(t *testing.T) {
 	}()
 	input := append([]byte(`{"hook_event_name":"PostToolUse","padding":"`), bytes.Repeat([]byte{'x'}, maxEventBytes)...)
 	input = append(input, []byte(`"}`)...)
-	run(bytes.NewReader(input), path)
+	if err := run(bytes.NewReader(input), path); err != nil {
+		t.Fatalf("run() = %v", err)
+	}
 	select {
 	case <-accepted:
 		t.Fatal("oversized event was forwarded")
@@ -163,15 +169,37 @@ func TestRunRejectsOversizedPayload(t *testing.T) {
 }
 
 func TestRunIgnoresInvalidAndOtherEvents(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "absent.sock")
+	path := socketTestPath(t, "filtered.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	accepted := make(chan struct{}, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			_ = conn.Close()
+			accepted <- struct{}{}
+		}
+	}()
 	for _, input := range []string{"not json", `{"hook_event_name":"PreToolUse"}`, `{"hook_event_name":"PostToolUse"}`} {
-		run(bytes.NewBufferString(input), path)
+		if err := run(bytes.NewBufferString(input), path); err != nil {
+			t.Fatalf("filtered run(%q) = %v", input, err)
+		}
+	}
+	select {
+	case <-accepted:
+		t.Fatal("filtered event connected to observer socket")
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
 func TestNotifyReturnsWhenSocketMissing(t *testing.T) {
 	start := time.Now()
-	notify(filepath.Join(t.TempDir(), "absent.sock"), []byte(`{}`))
+	if err := notify(filepath.Join(t.TempDir(), "absent.sock"), []byte(`{}`)); err == nil {
+		t.Fatal("notify() succeeded with a missing observer socket")
+	}
 	if time.Since(start) > time.Second {
 		t.Fatal("observer failure exceeded bounded return time")
 	}
@@ -194,7 +222,9 @@ func TestNotifyTimesOutWhenPeerDoesNotRead(t *testing.T) {
 		}
 	}()
 	start := time.Now()
-	notify(path, bytes.Repeat([]byte{'x'}, 8<<20))
+	if err := notify(path, bytes.Repeat([]byte{'x'}, 8<<20)); err == nil {
+		t.Fatal("notify() succeeded when observer did not read")
+	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("stalled peer held hook for %s", elapsed)
 	}
@@ -202,6 +232,24 @@ func TestNotifyTimesOutWhenPeerDoesNotRead(t *testing.T) {
 	case <-accepted:
 	default:
 		t.Fatal("peer was not accepted")
+	}
+}
+
+func TestMainReturnsFailureForObserverError(t *testing.T) {
+	if os.Getenv("AIRLOCK_TEST_MAIN_FAILURE") == "1" {
+		main()
+		return
+	}
+	cwd := initRepo(t)
+	input, err := json.Marshal(map[string]string{"hook_event_name": "PostToolUse", "tool_name": "Bash", "cwd": cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMainReturnsFailureForObserverError$")
+	cmd.Env = append(os.Environ(), "AIRLOCK_TEST_MAIN_FAILURE=1", "AIRLOCK_CODEX_HOOK_SOCKET="+filepath.Join(t.TempDir(), "missing.sock"))
+	cmd.Stdin = bytes.NewReader(input)
+	if err := cmd.Run(); err == nil {
+		t.Fatal("main exited successfully after observer notification failed")
 	}
 }
 
